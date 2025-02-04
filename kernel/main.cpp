@@ -1,6 +1,6 @@
-#include <arch/cpu.hpp>
-#include <boot/init.hpp>
-#include <boot/limine.h>
+#include <ornyx/arch/cpu.hpp>
+#include <ornyx/boot/init.hpp>
+#include <ornyx/boot/limine.h>
 
 /* limine boot sequences */
 namespace
@@ -26,9 +26,6 @@ extern "C" void kernel_main()
 {
     if (LIMINE_BASE_REVISION_SUPPORTED == false)
         onx::cpu::halt();
-
-    /* we init global constructors 'n cxxrt here */
-    onx::init_globals();
 
     /* 
      * getting text mode display driver
