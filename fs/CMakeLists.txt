@@ -1,7 +1,7 @@
 add_library(fs OBJECT
-    fs.cpp
+        fs.cpp
 )
 
 target_include_directories(fs PUBLIC
-    ${CMAKE_SOURCE_DIR}/include
+        ${CMAKE_SOURCE_DIR}/include
 )

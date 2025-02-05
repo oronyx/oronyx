@@ -1,6 +1,6 @@
-if(NOT DEFINED ARCH)
+if (NOT DEFINED ARCH)
     set(ARCH "x86_64")
-endif()
+endif ()
 
 set(CMAKE_TRY_COMPILE_TARGET_TYPE "STATIC_LIBRARY")
 set(CMAKE_SYSTEM_NAME Generic)

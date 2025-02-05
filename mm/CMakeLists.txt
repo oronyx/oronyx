@@ -1,7 +1,7 @@
 add_library(mm OBJECT
-    mm.cpp
+        mm.cpp
 )
 
 target_include_directories(mm PUBLIC
-    ${CMAKE_SOURCE_DIR}/include
+        ${CMAKE_SOURCE_DIR}/include
 )

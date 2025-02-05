@@ -14,7 +14,7 @@ namespace onx
         
         static void disable_interrupts() noexcept;
 
-        static void init() noexcept;
+        static void init(volatile limine_smp_request* mp) noexcept;
 
         [[noreturn]] static void halt() noexcept;
     };

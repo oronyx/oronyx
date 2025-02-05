@@ -2,6 +2,7 @@
 
 #ifndef __ORNYX__CPU__
 #define __ORNYX__CPU__
+#include <ornyx/boot/limine.h>
 
 /* CPU-specific stuff that will be in arch/${ARCH} */
 namespace onx
@@ -12,7 +13,7 @@ namespace onx
         static void enable_interrupts() noexcept = delete;
         static void disable_interrupts() noexcept = delete;
         [[noreturn]] static void halt() noexcept;
-        static void init();
+        static void init(volatile limine_smp_request* mp);
     };
 
     struct x86_64;

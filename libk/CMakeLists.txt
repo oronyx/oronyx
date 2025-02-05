@@ -1,12 +1,12 @@
 add_library(libk OBJECT
-    src/__cxxrt.cpp
-    src/ctypes.cpp
+        src/__cxxrt.cpp
+        src/ctypes.cpp
 )
 
 target_include_directories(libk
-    PUBLIC
+        PUBLIC
         ${CMAKE_SOURCE_DIR}/include
-        
-    PRIVATE
+
+        PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src
 )

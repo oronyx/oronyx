@@ -1,11 +1,11 @@
 add_library(arch OBJECT
-    src/cpu_impl.cpp
+        src/cpu_impl.cpp
 )
 
 target_include_directories(arch
-    PUBLIC
+        PUBLIC
         ${CMAKE_SOURCE_DIR}/include
-        
-    PRIVATE
+
+        PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src
 )

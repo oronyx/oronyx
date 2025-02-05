@@ -1,10 +1,12 @@
-#include <ornyx/boot/limine.h>
-#include <ornyx/arch/cpu.hpp>
-#include <ornyx/boot/init.hpp>
 #include <ornyx/textmode.hpp>
-#include <types.hpp>
+#include <ornyx/arch/cpu.hpp>
+#include <ornyx/boot/limine.h>
 
-/* limine boot sequences */
+/*
+ * limine boot sequences
+ * - framebuffer
+ * - processor
+ */
 namespace
 {
     __attribute__((used, section(".limine_requests")))
@@ -17,6 +19,14 @@ namespace
         .response = nullptr
     };
 
+    __attribute((used, section(".limine_requests")))
+    volatile limine_smp_request mp_request = {
+        .id = LIMINE_SMP_REQUEST,
+        .revision = 0,
+        .response = nullptr,
+        .flags = 1 /* enable if x2APIC is possible */
+    };
+
     __attribute__((used, section(".limine_requests_start")))
     volatile LIMINE_REQUESTS_START_MARKER;
 
@@ -24,6 +34,7 @@ namespace
     volatile LIMINE_REQUESTS_END_MARKER;
 }
 
+/* our entry point */
 extern "C" void kernel_main()
 {
     if (LIMINE_BASE_REVISION_SUPPORTED == false)
@@ -39,41 +50,39 @@ extern "C" void kernel_main()
     )
     {
         onx::cpu::halt();
-        return;
     }
 
-    auto fb = framebuffer_requests.response->framebuffers[0];
+    const auto fb = framebuffer_requests.response->framebuffers[0];
     onx::textmode::init(fb);
-    // onx::cpu::halt();
-    /* test init: gradient */
-    uint32_t* buffer = (uint32_t*)fb->address;
-    size_t pitch = fb->pitch / sizeof(uint32_t);
-    for (size_t y = 0; y < fb->height; y++) 
-    {
-        uint8_t blue = (y * 255) / fb->height;
-        for (size_t x = 0; x < fb->width; x++) 
+
+    /*
+        uint32_t* buffer = (uint32_t*)fb->address;
+        size_t pitch = fb->pitch / sizeof(uint32_t);
+        for (size_t y = 0; y < fb->height; y++)
         {
-            uint8_t red = (x * 255) / fb->width;
-            uint32_t color = (0xFF << 24) | (red << 16) | blue;
-            buffer[y * pitch + x] = color;
+            uint8_t blue = (y * 255) / fb->height;
+            for (size_t x = 0; x < fb->width; x++)
+            {
+                uint8_t red = (x * 255) / fb->width;
+                uint32_t color = (0xFF << 24) | (red << 16) | blue;
+                buffer[y * pitch + x] = color;
+            }
         }
-    }
-    /* test end: gradient */
+    */
 
     /*
      * **TODO**:
      *  boot process
      * - [X] cpu init <- handled by limine
      * - [ ] idt init
-     * - [ ] hal init
-     * - [ ] apic init
      * - [ ] apit init
      * - [ ] paging init
      * - [ ] mm init
      * - [ ] syscall init
      * - [ ] scheduling init
     */
-    onx::cpu::init_cpu();
+
+    onx::cpu::init(&mp_request);
     onx::textmode::write_line("WELCOME TO ORNYX");
     onx::textmode::write_line("CPU INITIALIZED");
     onx::textmode::write("RUNNING ON x86_64");
