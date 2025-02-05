@@ -2,6 +2,7 @@
 
 #ifndef __ORNYX__CPU__
 #define __ORNYX__CPU__
+
 #include <ornyx/boot/limine.h>
 
 /* CPU-specific stuff that will be in arch/${ARCH} */

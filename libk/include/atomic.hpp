@@ -17,7 +17,7 @@ namespace onx
         // TODO: weak & strong
         bool compare_exchange(T& expected, T desired) noexcept
         {
-            #if defined(__x86_64_)
+            #if defined(__x86_64__)
                 bool result;
                 asm volatile(
                     "lock cmpxchg %2, %1\n\t"
@@ -41,10 +41,19 @@ namespace onx
             __atomic_store_n(&_value, new_value, __ATOMIC_SEQ_CST);
         }
 
-        T fetch_add(T arg) noexcept 
+        T fetch_add(T arg) noexcept
         {
+        #if defined(__x86_64__)
+            asm volatile("lock xadd %0, %1"
+                         : "+r"(arg), "+m"(_value)
+                         :
+                         : "memory");
+            return arg;
+        #else
             return __atomic_fetch_add(&_value, arg, __ATOMIC_SEQ_CST);
+        #endif
         }
+
 
     private:
         volatile T _value;

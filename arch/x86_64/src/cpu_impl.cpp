@@ -1,9 +1,11 @@
 #include "../include/cpu_impl.hpp"
 #include <ornyx/textmode.hpp>
 #include <ornyx/boot/limine.h>
+#include <type_traits.hpp>
 
 namespace onx
 {
+    /* 64-bit GDT */
     struct GDTEntry
     {
         uint16_t limit_low;
@@ -21,6 +23,33 @@ namespace onx
         uint64_t offset;
     } __attribute__((packed));
 
+    /* interrupts */
+    struct IDTEntry
+    {
+        uint16_t offset_low;
+        uint16_t selector;
+        uint8_t ist;
+        uint8_t flags;
+        uint16_t offset_mid;
+        uint32_t offset_high;
+        uint32_t reserved;
+    } __attribute__((packed));
+
+    struct IDTDescriptor
+    {
+        uint16_t limit;
+        uint64_t base;
+    } __attribute__((packed));
+
+    struct InterruptFrame
+    {
+        uint64_t ip;
+        uint64_t cs;
+        uint64_t flags;
+        uint64_t sp;
+        uint64_t ss;
+    } __attribute__((packed));
+
     /* port & SIMD features */
     struct CPUFeatures
     {
@@ -35,6 +64,172 @@ namespace onx
         bool avx512dq { false };
         uint32_t bsp_lapic_id { 0 };
     };
+
+    static constexpr uint8_t EXCEPTION_DE = 0;  // divide error
+    static constexpr uint8_t EXCEPTION_DB = 1;  // debug
+    static constexpr uint8_t EXCEPTION_NMI = 2; // non-maskable int
+    static constexpr uint8_t EXCEPTION_BP = 3;  // breakpoint
+    static constexpr uint8_t EXCEPTION_OF = 4;  // overflow
+    static constexpr uint8_t EXCEPTION_BR = 5;  // bound Range
+    static constexpr uint8_t EXCEPTION_UD = 6;  // invalid opcode
+    static constexpr uint8_t EXCEPTION_NM = 7;  // device unavailable
+    static constexpr uint8_t EXCEPTION_DF = 8;  // double fault     (Error Code)
+    static constexpr uint8_t EXCEPTION_CSO = 9; // coprocessor segment Ooerrun
+    static constexpr uint8_t EXCEPTION_TS = 10; // invalid TSS      (Error Code)
+    static constexpr uint8_t EXCEPTION_NP = 11; // segment not present (Error Code)
+    static constexpr uint8_t EXCEPTION_SS = 12; // stack fault      (Error Code)
+    static constexpr uint8_t EXCEPTION_GP = 13; // general protection (Error Code)
+    static constexpr uint8_t EXCEPTION_PF = 14; // page eault       (Error Code)
+    static constexpr uint8_t EXCEPTION_MF = 16; // x87 FPU error
+    static constexpr uint8_t EXCEPTION_AC = 17; // alignment check  (Error Code)
+    static constexpr uint8_t EXCEPTION_MC = 18; // machine check
+    static constexpr uint8_t EXCEPTION_XM = 19; // SIMD exception
+    static constexpr uint8_t EXCEPTION_VE = 20; // virtualization exception
+    static constexpr uint8_t IRQ_TIMER = 32;    // PIT/APIC Timer
+    static constexpr uint8_t IRQ_KEYBOARD = 33; // keyboard
+    static constexpr uint8_t IRQ_CASCADE = 34;  // cascade for 8259A Slave
+    static constexpr uint8_t IRQ_COM2 = 35;     // COM2
+    static constexpr uint8_t IRQ_COM1 = 36;     // COM1
+    static constexpr uint8_t IRQ_LPT2 = 37;     // LPT2
+    static constexpr uint8_t IRQ_FLOPPY = 38;   // floppy
+    static constexpr uint8_t IRQ_LPT1 = 39;     // LPT1/unreliable "spurious" interrupt
+    static constexpr uint8_t IRQ_RTC = 40;      // CMOS RTC
+    static constexpr uint8_t IRQ_9 = 41;        // Free/SCSI/NIC
+    static constexpr uint8_t IRQ_10 = 42;       // Free/SCSI/NIC
+    static constexpr uint8_t IRQ_11 = 43;       // Free/SCSI/NIC
+    static constexpr uint8_t IRQ_MOUSE = 44;    // PS2 Mouse
+    static constexpr uint8_t IRQ_FPU = 45;      // FPU/Coprocessor
+    static constexpr uint8_t IRQ_ATA1 = 46;     // primary ATA
+    static constexpr uint8_t IRQ_ATA2 = 47;     // secondary ATA
+
+    using InterruptHandler = void(*)(InterruptFrame *);
+    using ErrorInterruptHandler = void(*)(InterruptFrame *, uint64_t);
+
+    static InterruptHandler handlers[256] = { nullptr };
+
+    alignas(16) GDTEntry gdt[] = {
+        { 0, 0, 0, 0, 0, 0, 0 },
+        { 0xFFFF, 0, 0, 0x9A, 0xF, 0xA, 0 },
+        { 0xFFFF, 0, 0, 0x92, 0xF, 0xA, 0 }
+    };
+
+    alignas(16) IDTEntry idt[256];
+    static IDTDescriptor idtr = {
+        sizeof(idt) - 1,
+        reinterpret_cast<uint64_t>(idt)
+    };
+
+    GDTDescriptor gdtr = {
+        sizeof(gdt) - 1,
+        reinterpret_cast<uint64_t>(gdt)
+    };
+
+    CPUFeatures cpu_features;
+
+    /* for int dispatch */
+    __attribute__((interrupt))
+    inline void int_no_error(InterruptFrame *frame)
+    {
+        /* this gets interrupt number from stack & will be pushed by our stub */
+        uintptr_t int_no;
+        asm volatile(
+            "mov 8(%%rbp), %0"
+            : "=r"(int_no)
+            :
+            : "memory"
+        );
+
+        if (handlers[int_no])
+            handlers[int_no](frame);
+    }
+
+    /* for int dispatch */
+    __attribute__((interrupt))
+    inline void int_with_error(InterruptFrame *frame, uint64_t error)
+    {
+        uintptr_t int_no;
+        asm volatile(
+            "mov 16(%%rbp), %0"
+            : "=r"(int_no)
+            :
+            : "memory"
+        );
+
+        if (handlers[int_no])
+            reinterpret_cast<ErrorInterruptHandler>(handlers[int_no])(frame, error);
+    }
+
+    template<typename HandlerType>
+    void setup_idt(const uint8_t vector, HandlerType *handler, const uint16_t selector = 0x08, const uint8_t ist = 0)
+    {
+        const auto handler_addr = reinterpret_cast<uintptr_t>(handler);
+        // ReSharper disable once CppUseStructuredBinding
+        IDTEntry &entry = idt[vector];
+        entry.offset_low = handler_addr & 0xFFFF;
+        entry.selector = selector;
+        entry.ist = ist;
+        entry.flags = 0x8E; // PRESENT | RING0 | INT_GATE
+        entry.offset_mid = (handler_addr >> 16) & 0xFFFF;
+        entry.offset_high = (handler_addr >> 32) & 0xFFFFFFFF;
+
+        using NoErrorHandlerType = void(*)(InterruptFrame *);
+        using ErrorHandlerType = void(*)(InterruptFrame *, uint64_t);
+
+        if constexpr (is_same<HandlerType *, ErrorHandlerType>::value ||
+                      is_same<HandlerType *, NoErrorHandlerType>::value)
+        {
+            handlers[vector] = reinterpret_cast<InterruptHandler>(handler);
+        }
+        else
+        {
+            static_assert(always_false<HandlerType>, "Unsupported interrupt handler type");
+        }
+    }
+
+    inline void setup_exc()
+    {
+        setup_idt(EXCEPTION_DE, int_no_error);   // divide error
+        setup_idt(EXCEPTION_DB, int_no_error);   // debug
+        setup_idt(EXCEPTION_NMI, int_no_error);  // non-maskable int
+        setup_idt(EXCEPTION_BP, int_no_error);   // breakpoint
+        setup_idt(EXCEPTION_OF, int_no_error);   // overflow
+        setup_idt(EXCEPTION_BR, int_no_error);   // bound rage
+        setup_idt(EXCEPTION_UD, int_no_error);   // invalid opcode
+        setup_idt(EXCEPTION_NM, int_no_error);   // device unvailable
+        setup_idt(EXCEPTION_DF, int_with_error); // double fault
+        setup_idt(EXCEPTION_CSO, int_no_error);  // coprocessor segment overrun
+        setup_idt(EXCEPTION_TS, int_with_error); // invalid TSS
+        setup_idt(EXCEPTION_NP, int_with_error); // segment Not present
+        setup_idt(EXCEPTION_SS, int_with_error); // stack fault
+        setup_idt(EXCEPTION_GP, int_with_error); // general protection
+        setup_idt(EXCEPTION_PF, int_with_error); // page fault
+        setup_idt(EXCEPTION_MF, int_no_error);   // x87 fPU error
+        setup_idt(EXCEPTION_AC, int_with_error); // alignment check
+        setup_idt(EXCEPTION_MC, int_no_error);   // machine check
+        setup_idt(EXCEPTION_XM, int_no_error);   // SIMD exception
+        setup_idt(EXCEPTION_VE, int_no_error);   // virtualization exception
+    }
+
+    /* TODO: to be replaced by actual handlers(?) */
+    inline void setup_irqs()
+    {
+        setup_idt(IRQ_TIMER, int_no_error);
+        setup_idt(IRQ_KEYBOARD, int_no_error);
+        setup_idt(IRQ_CASCADE, int_no_error);
+        setup_idt(IRQ_COM2, int_no_error);
+        setup_idt(IRQ_COM1, int_no_error);
+        setup_idt(IRQ_LPT2, int_no_error);
+        setup_idt(IRQ_FLOPPY, int_no_error);
+        setup_idt(IRQ_LPT1, int_no_error);
+        setup_idt(IRQ_RTC, int_no_error);
+        setup_idt(IRQ_9, int_no_error);
+        setup_idt(IRQ_10, int_no_error);
+        setup_idt(IRQ_11, int_no_error);
+        setup_idt(IRQ_MOUSE, int_no_error);
+        setup_idt(IRQ_FPU, int_no_error);
+        setup_idt(IRQ_ATA1, int_no_error);
+        setup_idt(IRQ_ATA2, int_no_error);
+    }
 
     inline void outb(uint16_t port, uint8_t val)
     {
@@ -67,19 +262,6 @@ namespace onx
         asm volatile("wrmsr" : : "a"(low), "d"(high), "c"(msr));
     }
 
-    alignas(16) GDTEntry gdt[] = {
-        { 0, 0, 0, 0, 0, 0, 0 },
-        { 0xFFFF, 0, 0, 0x9A, 0xF, 0xA, 0 },
-        { 0xFFFF, 0, 0, 0x92, 0xF, 0xA, 0 }
-    };
-
-    GDTDescriptor gdtr = {
-        sizeof(gdt) - 1,
-        reinterpret_cast<uint64_t>(gdt)
-    };
-
-    CPUFeatures cpu_features;
-
     void cpu_traits<x86_64>::enable_interrupts() noexcept
     {
         asm volatile("sti");
@@ -90,10 +272,8 @@ namespace onx
         asm volatile("cli");
     }
 
-    /* TODO: IDT, MSR x86 */
     void cpu_traits<x86_64>::init(volatile limine_smp_request *mp) noexcept
     {
-        /* CPU features */
         uint32_t eax, ebx, ecx, edx;
         asm volatile("cpuid"
             : "=a"(eax), "=b"(ebx), "=c"(ecx), "=d"(edx)
@@ -191,6 +371,9 @@ namespace onx
                 @note commented out due to kernel crashing
                     will do once the interrupt handling is properly set up
 
+                    @second note: memmap needs to be set up before enabling
+                        spurious interrupts
+
                 // map the APIC registers for xAPIC mode
                 volatile uint32_t* apic = cpu_features.x2apic ? nullptr
                     : reinterpret_cast<volatile uint32_t*>(0xFEE00000);
@@ -211,16 +394,16 @@ namespace onx
         {
             /* PIC init */
             // ICW1: start init sequence
-            outb(0x20, 0x11);  // master
-            outb(0xA0, 0x11);  // slave
+            outb(0x20, 0x11); // master
+            outb(0xA0, 0x11); // slave
 
             // ICW2: vector offset
             outb(0x21, 0x20);
             outb(0xA1, 0x28);
 
             // ICW3: master & slave wiring
-            outb(0x21, 0x04);  // tell master there's a slave at IRQ2
-            outb(0xA1, 0x02);  // tell slave its cascade identity
+            outb(0x21, 0x04); // tell master there's a slave at IRQ2
+            outb(0xA1, 0x02); // tell slave its cascade identity
 
             // ICW4: set x86 mode
             outb(0x21, 0x01);
@@ -247,7 +430,12 @@ namespace onx
         );
 
         /* IDT */
-        // TODO: implement IDT setup
+        for (auto &handler: handlers)
+            handler = nullptr;
+
+        setup_exc();
+        setup_irqs();                          /* please don't forget to getting back to this */
+        asm volatile("lidt %0" : : "m"(idtr)); // load the IDT
 
         /* MSR */
     }

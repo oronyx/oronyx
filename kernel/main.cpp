@@ -55,6 +55,7 @@ extern "C" void kernel_main()
     const auto fb = framebuffer_requests.response->framebuffers[0];
     onx::textmode::init(fb);
 
+    /* test init: gradient */
     /*
         uint32_t* buffer = (uint32_t*)fb->address;
         size_t pitch = fb->pitch / sizeof(uint32_t);
@@ -69,15 +70,16 @@ extern "C" void kernel_main()
             }
         }
     */
-
+    /* test end: gradient */
+    // onx::mem::init(&mem_request);
     /*
      * **TODO**:
      *  boot process
+     * - [ ] mm init <- priority
      * - [X] cpu init <- handled by limine
-     * - [ ] idt init
+     * - [X] idt init <- handled in the cpu init
      * - [ ] apit init
      * - [ ] paging init
-     * - [ ] mm init
      * - [ ] syscall init
      * - [ ] scheduling init
     */

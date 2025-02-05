@@ -1,11 +1,10 @@
-// textmode.hpp
 #pragma once
 
 #ifndef __ORNYX__TEXTMODE__
 #define __ORNYX__TEXTMODE__
 
-#include <ornyx/boot/limine.h>
 #include <types.hpp>
+#include <ornyx/boot/limine.h>
 
 namespace onx::textmode
 {
@@ -13,7 +12,7 @@ namespace onx::textmode
     static constexpr size_t WIDE_WIDTH = 16;  // cjk
     static constexpr size_t FONT_HEIGHT = 16;
 
-    void init(struct limine_framebuffer* framebuffer) noexcept;
+    void init(limine_framebuffer* framebuffer) noexcept;
 
     void clear() noexcept;
 

@@ -25,6 +25,8 @@ if (ARCH STREQUAL "x86_64")
     add_compile_options(
             -mcmodel=kernel
             -mno-red-zone
+            -mgeneral-regs-only
+            -mno-red-zone
     )
 endif ()
 
