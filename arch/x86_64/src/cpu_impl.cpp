@@ -1,7 +1,11 @@
 #include "../include/cpu_impl.hpp"
-#include <ornyx/textmode.hpp>
-#include <ornyx/boot/limine.h>
+
+#include <iostream.hpp>
 #include <type_traits.hpp>
+#include <ornyx/textmode.hpp>
+#include <ornyx/arch/mem.hpp>
+#include <ornyx/boot/limine.h>
+#include "../include/mem_impl.hpp"
 
 namespace onx
 {
@@ -101,6 +105,21 @@ namespace onx
     static constexpr uint8_t IRQ_FPU = 45;      // FPU/Coprocessor
     static constexpr uint8_t IRQ_ATA1 = 46;     // primary ATA
     static constexpr uint8_t IRQ_ATA2 = 47;     // secondary ATA
+    static constexpr uint8_t IRQ_THERMAL = 0x80;
+    static constexpr uint8_t IRQ_PERFMON = 0x81;
+    static constexpr uint8_t IRQ_LINT0 = 0x82;
+    static constexpr uint8_t IRQ_LINT1 = 0x83;
+    static constexpr uint8_t IRQ_ERROR = 0x84;
+
+    /* MSR stuff */
+    static constexpr uint32_t MSR_EFER = 0xC0000080;
+    static constexpr uint32_t MSR_STAR = 0xC0000081;
+    static constexpr uint32_t MSR_LSTAR = 0xC0000082;
+    static constexpr uint32_t MSR_CSTAR = 0xC0000083;
+    static constexpr uint32_t MSR_SYSCALL_MASK = 0xC0000084;
+    static constexpr uint32_t MSR_FS_BASE = 0xC0000100;
+    static constexpr uint32_t MSR_GS_BASE = 0xC0000101;
+    static constexpr uint32_t MSR_KERNEL_GS_BASE = 0xC0000102;
 
     using InterruptHandler = void(*)(InterruptFrame *);
     using ErrorInterruptHandler = void(*)(InterruptFrame *, uint64_t);
@@ -125,6 +144,37 @@ namespace onx
     };
 
     CPUFeatures cpu_features;
+
+    inline void outb(uint16_t port, uint8_t val)
+    {
+        asm volatile("outb %0, %1" : : "a"(val), "Nd"(port) : "memory");
+    }
+
+    inline void outw(uint16_t port, uint16_t val)
+    {
+        asm volatile("outw %0, %1" : : "a"(val), "Nd"(port) : "memory");
+    }
+
+    inline uint8_t inb(uint16_t port)
+    {
+        uint8_t ret;
+        asm volatile("inb %1, %0" : "=a"(ret) : "Nd"(port) : "memory");
+        return ret;
+    }
+
+    inline uint64_t rdmsr(uint32_t msr)
+    {
+        uint32_t low, high;
+        asm volatile("rdmsr" : "=a"(low), "=d"(high) : "c"(msr));
+        return (static_cast<uint64_t>(high) << 32) | low;
+    }
+
+    inline void wrmsr(uint32_t msr, uint64_t value)
+    {
+        uint32_t low = value & 0xFFFFFFFF;
+        uint32_t high = value >> 32;
+        asm volatile("wrmsr" : : "a"(low), "d"(high), "c"(msr));
+    }
 
     /* for int dispatch */
     __attribute__((interrupt))
@@ -186,6 +236,7 @@ namespace onx
         }
     }
 
+    /* TODO: to be replaced with handlers */
     inline void setup_exc()
     {
         setup_idt(EXCEPTION_DE, int_no_error);   // divide error
@@ -231,37 +282,6 @@ namespace onx
         setup_idt(IRQ_ATA2, int_no_error);
     }
 
-    inline void outb(uint16_t port, uint8_t val)
-    {
-        asm volatile("outb %0, %1" : : "a"(val), "Nd"(port) : "memory");
-    }
-
-    inline void outw(uint16_t port, uint16_t val)
-    {
-        asm volatile("outw %0, %1" : : "a"(val), "Nd"(port) : "memory");
-    }
-
-    inline uint8_t inb(uint16_t port)
-    {
-        uint8_t ret;
-        asm volatile("inb %1, %0" : "=a"(ret) : "Nd"(port) : "memory");
-        return ret;
-    }
-
-    inline uint64_t rdmsr(uint32_t msr)
-    {
-        uint32_t low, high;
-        asm volatile("rdmsr" : "=a"(low), "=d"(high) : "c"(msr));
-        return (static_cast<uint64_t>(high) << 32) | low;
-    }
-
-    inline void wrmsr(uint32_t msr, uint64_t value)
-    {
-        uint32_t low = value & 0xFFFFFFFF;
-        uint32_t high = value >> 32;
-        asm volatile("wrmsr" : : "a"(low), "d"(high), "c"(msr));
-    }
-
     void cpu_traits<x86_64>::enable_interrupts() noexcept
     {
         asm volatile("sti");
@@ -272,8 +292,39 @@ namespace onx
         asm volatile("cli");
     }
 
-    void cpu_traits<x86_64>::init(volatile limine_smp_request *mp) noexcept
+    void cpu_traits<x86_64>::init(volatile limine_smp_request *mp, volatile limine_hhdm_request *hhdm) noexcept
     {
+        /* GDT */
+        asm volatile("lgdt %0" : : "m"(gdtr));
+        asm volatile(
+            "pushq $0x08\n"// code segment selector
+            "pushq $1f\n"  // ret addr
+            "lretq\n"
+            "1:\n"
+        );
+        asm volatile(
+            "mov $0x10, %%ax\n"
+            "mov %%ax, %%ds\n"
+            "mov %%ax, %%es\n"
+            "mov %%ax, %%fs\n"
+            "mov %%ax, %%gs\n"
+            "mov %%ax, %%ss\n"
+            : : : "ax"
+        );
+
+        /* IDT */
+        for (auto &handler: handlers)
+            handler = nullptr;
+
+        setup_exc();
+        setup_irqs();                          /* please don't forget to getting back to this */
+        asm volatile("lidt %0" : : "m"(idtr)); // load the IDT
+
+        /* we are not enabling int here because we want to set up */
+        /* either APIC or PIC first */
+
+        /* CPU features */
+        // TODO: check vendor
         uint32_t eax, ebx, ecx, edx;
         asm volatile("cpuid"
             : "=a"(eax), "=b"(ebx), "=c"(ecx), "=d"(edx)
@@ -367,28 +418,72 @@ namespace onx
                 textmode::write_line("Base APIC supported");
             }
 
+            constexpr uintptr_t APIC_BASE = 0xFEE00000;
+            mem::map_page(
+                APIC_BASE + hhdm->response->offset,
+                APIC_BASE,
+                PRESENT |
+                WRITABLE |
+                CACHE_DISABLE
+            );
+
+            // map the APIC registers for xAPIC mode
+            volatile uint32_t *apic = cpu_features.x2apic
+                                          ? nullptr
+                                          : reinterpret_cast<volatile uint32_t *>(APIC_BASE + hhdm->response->offset);
+
             /*
-                @note commented out due to kernel crashing
-                    will do once the interrupt handling is properly set up
+             * [1]: div config
+             * [2]: init count
+             * [3]: periodic timer vector
+             */
+            if (cpu_features.x2apic)
+            {
+                wrmsr(0x832, 0x10000);
+                wrmsr(0x838, 0x10000000);
+                wrmsr(0x832, IRQ_TIMER | 0x20000);
+            }
+            else if (apic)
+            {
+                apic[0x3E0 / 4] = 0x10000;
+                apic[0x380 / 4] = 0x10000000;
+                apic[0x320 / 4] = IRQ_TIMER | 0x20000;
+            }
 
-                    @second note: memmap needs to be set up before enabling
-                        spurious interrupts
+            /*
+             * configure LVT entries
+             * @note
+             *  we're NOT masking them (no 0x10000 bit)
+             *
+             * [1]: timer
+             * [2]: thermal
+             * [3]: performance
+             * [4]: LINT0
+             * [5]: LINT1
+             * [6]: error
+             */
+            if (cpu_features.x2apic)
+            {
+                wrmsr(0x833, IRQ_TIMER);
+                wrmsr(0x834, IRQ_THERMAL);
+                wrmsr(0x835, IRQ_PERFMON);
+                wrmsr(0x836, IRQ_LINT0);
+                wrmsr(0x837, IRQ_LINT1);
+                wrmsr(0x834, IRQ_ERROR);
 
-                // map the APIC registers for xAPIC mode
-                volatile uint32_t* apic = cpu_features.x2apic ? nullptr
-                    : reinterpret_cast<volatile uint32_t*>(0xFEE00000);
-
-
-                // enable spurious interrupts
-                if (cpu_features.x2apic)
-                {
-                    wrmsr(0x80F, 0x100 | 0xFF);
-                }
-                else if (apic)
-                {
-                    apic[0xF0 / 4] = 0x100 | 0xFF;
-                }
-            */
+                /* enable APIC and set spurious vector */
+                wrmsr(0x80F, 0x100 | 0xFF);
+            }
+            else if (apic)
+            {
+                apic[0x320 / 4] = IRQ_TIMER;
+                apic[0x330 / 4] = IRQ_THERMAL;
+                apic[0x340 / 4] = IRQ_PERFMON;
+                apic[0x350 / 4] = IRQ_LINT0;
+                apic[0x360 / 4] = IRQ_LINT1;
+                apic[0x370 / 4] = IRQ_ERROR;
+                apic[0xF0 / 4] = 0x100 | 0xFF;
+            }
         }
         else
         {
@@ -411,33 +506,42 @@ namespace onx
             textmode::write_line("Using legacy PIC");
         }
 
-        /* GDT */
-        asm volatile("lgdt %0" : : "m"(gdtr));
-        asm volatile(
-            "pushq $0x08\n"// code segment selector
-            "pushq $1f\n"  // ret addr
-            "lretq\n"
-            "1:\n"
-        );
-        asm volatile(
-            "mov $0x10, %%ax\n"
-            "mov %%ax, %%ds\n"
-            "mov %%ax, %%es\n"
-            "mov %%ax, %%fs\n"
-            "mov %%ax, %%gs\n"
-            "mov %%ax, %%ss\n"
-            : : : "ax"
-        );
+        enable_interrupts();
+        textmode::write_line("APIC initialized with interrupts enabled");
 
-        /* IDT */
-        for (auto &handler: handlers)
-            handler = nullptr;
 
-        setup_exc();
-        setup_irqs();                          /* please don't forget to getting back to this */
-        asm volatile("lidt %0" : : "m"(idtr)); // load the IDT
+        /* enable syscall & sysret */
+        uint64_t efer = rdmsr(MSR_EFER);
+        efer |= 1ULL << 0;
+        wrmsr(MSR_EFER, efer);
 
-        /* MSR */
+        /* STAR & LSTAR setup */
+        uint64_t star = (0x13ULL << 48) | (0x08ULL << 32);
+        wrmsr(MSR_STAR, star);
+
+        /* syscall entry point */
+        static auto syscall_entry = []() __attribute__((naked))
+        {
+            asm volatile(
+                "swapgs\n"
+                "movq %rsp, %gs:16\n"
+                "movq %gs:8, %rsp\n"
+                "ret"
+            );
+        };
+        wrmsr(MSR_LSTAR, reinterpret_cast<uint64_t>(+syscall_entry));
+
+        wrmsr(MSR_SYSCALL_MASK, 0x200);
+
+        /* GC base because this is IMPORTANT to separate kernel/user */
+        wrmsr(MSR_GS_BASE, 0);
+        wrmsr(MSR_KERNEL_GS_BASE, 0);
+        textmode::write_line("MSR enabled");
+
+        /* SMP */
+
+
+        textmode::write_line("CPU initialized");
     }
 
     [[noreturn]] void cpu_traits<x86_64>::halt() noexcept

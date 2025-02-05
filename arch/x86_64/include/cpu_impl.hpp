@@ -5,19 +5,16 @@
 
 #include <ornyx/arch/cpu.hpp>
 
-namespace onx
+template<>
+struct onx::cpu_traits<onx::x86_64>
 {
-    template<>
-    struct cpu_traits<x86_64>
-    {
-        static void enable_interrupts() noexcept;
-        
-        static void disable_interrupts() noexcept;
+    static void enable_interrupts() noexcept;
 
-        static void init(volatile limine_smp_request* mp) noexcept;
+    static void disable_interrupts() noexcept;
 
-        [[noreturn]] static void halt() noexcept;
-    };
-}
+    static void init(volatile limine_smp_request *mp, volatile limine_hhdm_request* hhdm) noexcept;
+
+    [[noreturn]] static void halt() noexcept;
+};
 
 #endif

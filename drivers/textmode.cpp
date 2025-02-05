@@ -155,7 +155,6 @@ namespace onx::textmode
         y_pos = 0;
         fg_color = 0xFFFFFFFF;
         bg_color = 0x00000000;
-
         if (buffer && width && height && pitch)
             clear();
     }

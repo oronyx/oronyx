@@ -1,11 +1,15 @@
 #include <ornyx/textmode.hpp>
 #include <ornyx/arch/cpu.hpp>
+#include <ornyx/arch/mem.hpp>
 #include <ornyx/boot/limine.h>
+#include <ornyx/arch/paging.hpp>
 
 /*
  * limine boot sequences
  * - framebuffer
  * - processor
+ * - hhdm
+ * - memmap
  */
 namespace
 {
@@ -19,12 +23,37 @@ namespace
         .response = nullptr
     };
 
-    __attribute((used, section(".limine_requests")))
+    __attribute__((used, section(".limine_requests")))
     volatile limine_smp_request mp_request = {
         .id = LIMINE_SMP_REQUEST,
         .revision = 0,
         .response = nullptr,
         .flags = 1 /* enable if x2APIC is possible */
+    };
+
+    __attribute__((used, section(".limine_requests")))
+    inline volatile limine_hhdm_request hhdm_request = {
+        .id = LIMINE_HHDM_REQUEST,
+        .revision = 0,
+        .response = nullptr
+    };
+
+    __attribute__((used, section(".limine_requests")))
+    inline volatile limine_memmap_request memmap_request = {
+        .id = LIMINE_MEMMAP_REQUEST,
+        .response = nullptr
+    };
+
+    __attribute__((used, section(".limine_requests")))
+    volatile limine_paging_mode_request paging_request = {
+        .id = LIMINE_PAGING_MODE_REQUEST,
+        .revision = 1,
+        .response = nullptr,
+
+        /* these are known at compile-time */
+        .mode = onx::paging::default_mode(),
+        .max_mode = onx::paging::max_mode(),
+        .min_mode = onx::paging::min_mode()
     };
 
     __attribute__((used, section(".limine_requests_start")))
@@ -42,7 +71,7 @@ extern "C" void kernel_main()
 
     /* 
      * getting text mode display driver
-     * register, and then set it as current
+     * register, and then set it as the current
      * then pass the framebuffer to the driver(?)
      */
     if (framebuffer_requests.response == nullptr ||
@@ -71,7 +100,8 @@ extern "C" void kernel_main()
         }
     */
     /* test end: gradient */
-    // onx::mem::init(&mem_request);
+
+    onx::mem::init(&hhdm_request, &memmap_request);
     /*
      * **TODO**:
      *  boot process
@@ -84,11 +114,13 @@ extern "C" void kernel_main()
      * - [ ] scheduling init
     */
 
-    onx::cpu::init(&mp_request);
+    onx::textmode::write("\n");
+    onx::textmode::write("\t\n");
     onx::textmode::write_line("WELCOME TO ORNYX");
-    onx::textmode::write_line("CPU INITIALIZED");
-    onx::textmode::write("RUNNING ON x86_64");
+    onx::textmode::write_line("RUNNING ON x86_64");
+    onx::cpu::init(&mp_request, &hhdm_request);
 
+    /* everything else here should be thread-safe */
     // MAYBE-TODO: panic("task scheduling failed");
     //  maybe retry (?)
     /*

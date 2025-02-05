@@ -1,5 +1,5 @@
 add_library(mm OBJECT
-        mm.cpp
+        pmm.cpp
 )
 
 target_include_directories(mm PUBLIC

@@ -14,7 +14,7 @@ namespace onx
         static void enable_interrupts() noexcept = delete;
         static void disable_interrupts() noexcept = delete;
         [[noreturn]] static void halt() noexcept;
-        static void init(volatile limine_smp_request* mp);
+        static void init(volatile limine_smp_request *mp, volatile limine_hhdm_request* hhdm);
     };
 
     struct x86_64;
