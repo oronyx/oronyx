@@ -1,6 +1,6 @@
 add_library(arch OBJECT
     src/cpu_impl.cpp
-    src/idt.cpp
+    src/gdt.cpp
 )
 
 target_include_directories(arch

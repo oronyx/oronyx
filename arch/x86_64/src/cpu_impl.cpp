@@ -1,5 +1,5 @@
 #include "../include/cpu_impl.hpp"
-#include "../include/idt.hpp"
+#include "../include/gdt.hpp"
 
 namespace onx 
 {
@@ -13,11 +13,12 @@ namespace onx
         asm volatile("cli");
     }
 
-    /* TODO: IDT, MSR x86 */
-    void cpu_traits<x86_64>::init_cpu() noexcept 
+    /* TODO: GDT. IDT, MSR x86 */
+    void cpu_traits<x86_64>::init() noexcept 
     {
+        // GDT
+        init_gdt();
         // IDT
-        onx::init_idt();
         // MSR
     }
 

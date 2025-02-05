@@ -13,7 +13,7 @@ namespace onx
     }
 
     /* TODO: EVT */
-    void cpu_traits<aarch64>::init_cpu() noexcept 
+    void cpu_traits<aarch64>::init() noexcept 
     {
         
     }

@@ -12,7 +12,7 @@ namespace onx
         static void enable_interrupts() noexcept = delete;
         static void disable_interrupts() noexcept = delete;
         [[noreturn]] static void halt() noexcept;
-        static void init_cpu();
+        static void init();
     };
 
     struct x86_64;

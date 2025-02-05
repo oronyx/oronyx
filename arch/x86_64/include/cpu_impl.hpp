@@ -14,7 +14,7 @@ namespace onx
         
         static void disable_interrupts() noexcept;
 
-        static void init_cpu() noexcept;
+        static void init() noexcept;
 
         [[noreturn]] static void halt() noexcept;
     };

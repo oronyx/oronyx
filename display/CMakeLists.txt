@@ -1,5 +1,5 @@
 add_library(display OBJECT
-    fonts.cpp
+    display.cpp
 )
 
 target_include_directories(display PUBLIC

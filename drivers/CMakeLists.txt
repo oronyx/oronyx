@@ -1,5 +1,5 @@
 add_library(drivers OBJECT
-    driver.cpp
+    textmode.cpp
 )
 
 target_include_directories(drivers PUBLIC
