@@ -8,6 +8,8 @@
 /* CPU-specific stuff that will be in arch/${ARCH} */
 namespace onx
 {
+    struct CPUFeatures;
+
     template<typename Arch>
     struct cpu_traits
     {
@@ -15,6 +17,8 @@ namespace onx
         static void disable_interrupts() noexcept = delete;
         [[noreturn]] static void halt() noexcept;
         static void init(volatile limine_smp_request *mp, volatile limine_hhdm_request* hhdm);
+        static CPUFeatures& get_features() noexcept;
+        static uint64_t get_tick() noexcept;
     };
 
     struct x86_64;

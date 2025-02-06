@@ -1,5 +1,4 @@
 #include "../include/cpu_impl.hpp"
-
 #include <iostream.hpp>
 #include <type_traits.hpp>
 #include <ornyx/textmode.hpp>
@@ -25,6 +24,18 @@ namespace onx
     {
         uint16_t size;
         uint64_t offset;
+    } __attribute__((packed));
+
+    /* TSS */
+    struct TSS
+    {
+        uint32_t reserved0;
+        uint64_t rsp[3]; // rsp0-3
+        uint64_t reserved1;
+        uint64_t ist[7]; // ist1-7
+        uint64_t reserved2;
+        uint16_t reserved3;
+        uint16_t iopb;
     } __attribute__((packed));
 
     /* interrupts */
@@ -112,27 +123,32 @@ namespace onx
     static constexpr uint8_t IRQ_ERROR = 0x84;
 
     /* MSR stuff */
-    static constexpr uint32_t MSR_EFER = 0xC0000080;
-    static constexpr uint32_t MSR_STAR = 0xC0000081;
-    static constexpr uint32_t MSR_LSTAR = 0xC0000082;
-    static constexpr uint32_t MSR_CSTAR = 0xC0000083;
-    static constexpr uint32_t MSR_SYSCALL_MASK = 0xC0000084;
-    static constexpr uint32_t MSR_FS_BASE = 0xC0000100;
-    static constexpr uint32_t MSR_GS_BASE = 0xC0000101;
-    static constexpr uint32_t MSR_KERNEL_GS_BASE = 0xC0000102;
+    static constexpr auto MSR_EFER = 0xC0000080;
+    static constexpr auto MSR_STAR = 0xC0000081;
+    static constexpr auto MSR_LSTAR = 0xC0000082;
+    static constexpr auto MSR_SYSCALL_MASK = 0xC0000084;
+    static constexpr auto MSR_GS_BASE = 0xC0000101;
+    static constexpr auto MSR_KERNEL_GS_BASE = 0xC0000102;
+
+    constexpr uint16_t TSS_LIMIT = sizeof(TSS);
 
     using InterruptHandler = void(*)(InterruptFrame *);
     using ErrorInterruptHandler = void(*)(InterruptFrame *, uint64_t);
 
+    static uint64_t hhdm_offset = 0;
+    static volatile uint64_t tick = 0; /* for APIC & scheduler */
     static InterruptHandler handlers[256] = { nullptr };
 
     alignas(16) GDTEntry gdt[] = {
-        { 0, 0, 0, 0, 0, 0, 0 },
-        { 0xFFFF, 0, 0, 0x9A, 0xF, 0xA, 0 },
-        { 0xFFFF, 0, 0, 0x92, 0xF, 0xA, 0 }
+        { 0, 0, 0, 0, 0, 0, 0 }, // null
+        { 0xFFFF, 0, 0, 0x9A, 0xF, 0xA, 0 }, // kernel code
+        { 0xFFFF, 0, 0, 0x92, 0xF, 0xA, 0 }, // kernel data
+        { 0, 0, 0, 0, 0, 0, 0 }, // tss low
+        { 0, 0, 0, 0, 0, 0, 0 }, // tss high
     };
 
-    alignas(16) IDTEntry idt[256];
+    alignas(16) static TSS tss = {};
+    alignas(16) static IDTEntry idt[256];
     static IDTDescriptor idtr = {
         sizeof(idt) - 1,
         reinterpret_cast<uint64_t>(idt)
@@ -209,24 +225,106 @@ namespace onx
             reinterpret_cast<ErrorInterruptHandler>(handlers[int_no])(frame, error);
     }
 
+    /* for APIC */
+    __attribute__((interrupt))
+    void timer_handler(InterruptFrame*)
+    {
+        tick++;
+        if (cpu_features.x2apic)
+        {
+            wrmsr(0x80B, 0);
+        }
+        else
+        {
+            volatile auto *apic = reinterpret_cast<volatile uint32_t *>(0xFEE00000 + hhdm_offset);
+            apic[0xB0 / 4] = 0;
+        }
+    }
+
+    __attribute__((interrupt))
+    void page_fault_handler(InterruptFrame *frame, uint64_t error)
+    {
+        /* typically, cr2 contains the faulting address */
+        uint64_t fault_addr;
+        asm volatile("mov %%cr2, %0" : "=r"(fault_addr));
+        /*
+          err code:
+            P (bit 0) - 0: non-present page, 1: protection violation
+            W (bit 1) - 0: read, 1: write
+            U (bit 2) - 0: kernel, 1: user
+            R (bit 3) - 0: not reserved bit, 1: reserved bit violation
+            I (bit 4) - 0: not instruction fetch, 1: instruction fetch
+        */
+        textmode::write("Page Fault at 0x");
+        print_hex(fault_addr);
+        textmode::write(" (");
+        if (error & (1 << 0))
+            textmode::write("protection violation, ");
+        else
+            textmode::write("non-present page, ");
+        if (error & (1 << 1))
+            textmode::write("write, ");
+        else
+            textmode::write("read, ");
+        if (error & (1 << 2))
+            textmode::write("user, ");
+        else
+            textmode::write("kernel, ");
+        textmode::write_line(")");
+
+        cpu::halt(); /* TODO: proper fault handling */
+    }
+
+    /* general fault */
+    __attribute__((interrupt))
+    void gpf_handler(const InterruptFrame* frame, const uint64_t error)
+    {
+        textmode::write("General Protection Fault! Error code: ");
+        print_hex(error);
+        textmode::write(" at RIP: ");
+        print_hex(frame->ip);
+        textmode::write_line("");
+        cpu::halt();
+    }
+
+    __attribute__((interrupt))
+    void double_fault_handler(const InterruptFrame *frame, uint64_t)
+    {
+        textmode::write_line("DOUBLE FAULT!");
+        textmode::write("At RIP: ");
+        print_hex(frame->ip);
+        textmode::write_line("");
+        cpu::halt(); /* we halt because a double fault means the OS is cooked */
+    }
+
+    template<typename T>
+    using BaseInterruptHandler = void(*)(T*);
+
+    template<typename T>
+    using BaseErrorInterruptHandler = void(*)(T*, uint64_t);
+
+    using InterruptHandler = BaseInterruptHandler<InterruptFrame>;
+    using ErrorInterruptHandler = BaseErrorInterruptHandler<InterruptFrame>;
+
     template<typename HandlerType>
     void setup_idt(const uint8_t vector, HandlerType *handler, const uint16_t selector = 0x08, const uint8_t ist = 0)
     {
         const auto handler_addr = reinterpret_cast<uintptr_t>(handler);
-        // ReSharper disable once CppUseStructuredBinding
         IDTEntry &entry = idt[vector];
         entry.offset_low = handler_addr & 0xFFFF;
         entry.selector = selector;
         entry.ist = ist;
-        entry.flags = 0x8E; // PRESENT | RING0 | INT_GATE
+        entry.flags = 0x8E;
         entry.offset_mid = (handler_addr >> 16) & 0xFFFF;
         entry.offset_high = (handler_addr >> 32) & 0xFFFFFFFF;
 
-        using NoErrorHandlerType = void(*)(InterruptFrame *);
-        using ErrorHandlerType = void(*)(InterruptFrame *, uint64_t);
+        using NoErrorHandlerType = BaseInterruptHandler<const InterruptFrame>;
+        using ErrorHandlerType = BaseErrorInterruptHandler<const InterruptFrame>;
 
-        if constexpr (is_same<HandlerType *, ErrorHandlerType>::value ||
-                      is_same<HandlerType *, NoErrorHandlerType>::value)
+        if constexpr (is_same<HandlerType*, NoErrorHandlerType>::value ||
+                      is_same<HandlerType*, ErrorHandlerType>::value ||
+                      is_same<HandlerType*, BaseInterruptHandler<InterruptFrame>>::value ||
+                      is_same<HandlerType*, BaseErrorInterruptHandler<InterruptFrame>>::value)
         {
             handlers[vector] = reinterpret_cast<InterruptHandler>(handler);
         }
@@ -247,13 +345,13 @@ namespace onx
         setup_idt(EXCEPTION_BR, int_no_error);   // bound rage
         setup_idt(EXCEPTION_UD, int_no_error);   // invalid opcode
         setup_idt(EXCEPTION_NM, int_no_error);   // device unvailable
-        setup_idt(EXCEPTION_DF, int_with_error); // double fault
+        setup_idt(EXCEPTION_DF, double_fault_handler); // double fault
         setup_idt(EXCEPTION_CSO, int_no_error);  // coprocessor segment overrun
         setup_idt(EXCEPTION_TS, int_with_error); // invalid TSS
         setup_idt(EXCEPTION_NP, int_with_error); // segment Not present
         setup_idt(EXCEPTION_SS, int_with_error); // stack fault
-        setup_idt(EXCEPTION_GP, int_with_error); // general protection
-        setup_idt(EXCEPTION_PF, int_with_error); // page fault
+        setup_idt(EXCEPTION_GP, gpf_handler); // general protection
+        setup_idt(EXCEPTION_PF, page_fault_handler); // page fault
         setup_idt(EXCEPTION_MF, int_no_error);   // x87 fPU error
         setup_idt(EXCEPTION_AC, int_with_error); // alignment check
         setup_idt(EXCEPTION_MC, int_no_error);   // machine check
@@ -264,7 +362,7 @@ namespace onx
     /* TODO: to be replaced by actual handlers(?) */
     inline void setup_irqs()
     {
-        setup_idt(IRQ_TIMER, int_no_error);
+        setup_idt(IRQ_TIMER, timer_handler);
         setup_idt(IRQ_KEYBOARD, int_no_error);
         setup_idt(IRQ_CASCADE, int_no_error);
         setup_idt(IRQ_COM2, int_no_error);
@@ -294,6 +392,9 @@ namespace onx
 
     void cpu_traits<x86_64>::init(volatile limine_smp_request *mp, volatile limine_hhdm_request *hhdm) noexcept
     {
+        /* save HHDM offset */
+        hhdm_offset = hhdm->response->offset;
+
         /* GDT */
         asm volatile("lgdt %0" : : "m"(gdtr));
         asm volatile(
@@ -312,16 +413,47 @@ namespace onx
             : : : "ax"
         );
 
+        /* TSS */
+        const auto tss_base = reinterpret_cast<uint64_t>(&tss);
+
+        /* generally TSS descriptor is 16 bytes which is split across 2 GDT entries */
+        /* first entry [LOW] */
+        gdt[3].limit_low = TSS_LIMIT & 0xFFFF;
+        gdt[3].base_low = tss_base & 0xFFFF;
+        gdt[3].base_middle = (tss_base >> 16) & 0xFF;
+        gdt[3].access = 0x89; // PRESENT | RING0 | TSS
+        gdt[3].limit_high = (TSS_LIMIT >> 16) & 0xF;
+        gdt[3].flags = 0;
+        gdt[3].base_high = (tss_base >> 24) & 0xFF;
+
+        /* second entry [HIGH]; see GDT definitions for more info */
+        gdt[4].limit_low = (tss_base >> 32) & 0xFFFF;
+        gdt[4].base_low = (tss_base >> 48) & 0xFFFF;
+        gdt[4].base_middle = 0;
+        gdt[4].access = 0;
+        gdt[4].limit_high = 0;
+        gdt[4].flags = 0;
+        gdt[4].base_high = 0;
+
+        /* load our defined TSS */
+        tss.iopb = sizeof(TSS);
+        asm volatile(
+            "ltr %%ax"
+            : : "a"(0x18)  /* according to OSDev wiki; it is at 0x18 (3 * 8) */
+        );
+
+        // textmode::write_line("TSS initialized");
         /* IDT */
         for (auto &handler: handlers)
             handler = nullptr;
 
         setup_exc();
-        setup_irqs();                          /* please don't forget to getting back to this */
+        setup_irqs();                          /* please don't forget to get back to this */
         asm volatile("lidt %0" : : "m"(idtr)); // load the IDT
 
         /* we are not enabling int here because we want to set up */
         /* either APIC or PIC first */
+        /* kinda risky but breh */
 
         /* CPU features */
         // TODO: check vendor
@@ -336,7 +468,7 @@ namespace onx
         bool xsave = (ecx & (1 << 26));       /* needed for AVX */
         cpu_features.avx = (ecx & (1 << 28)) && xsave;
 
-        /* Check AVX2 and AVX-512 features */
+        /* check AVX2 and AVX-512 features */
         asm volatile("cpuid"
             : "=a"(eax), "=b"(ebx), "=c"(ecx), "=d"(edx)
             : "a"(7), "c"(0)
@@ -373,7 +505,7 @@ namespace onx
             cr4 |= 1 << 10; // set OSXMMEXCPT
             asm volatile("mov %0, %%cr4" : : "r"(cr4));
 
-            textmode::write_line("SSE supported");
+            // textmode::write_line("SSE supported");
         }
 
         if (cpu_features.avx)
@@ -395,9 +527,9 @@ namespace onx
             edx = xcr0 >> 32;
             asm volatile("xsetbv" : : "a"(eax), "d"(edx), "c"(0));
 
-            textmode::write_line("AVX supported");
-            if (cpu_features.avx512f)
-                textmode::write_line("AVX-512 supported");
+            // textmode::write_line("AVX supported");
+            // if (cpu_features.avx512f)
+            //     textmode::write_line("AVX-512 supported");
         }
 
         if (cpu_features.apic)
@@ -409,13 +541,13 @@ namespace onx
             {
                 uint64_t apic_base_msr = rdmsr(0x1B);
                 wrmsr(0x1B, apic_base_msr | (1 << 10) | (1 << 11));
-                textmode::write_line("x2APIC supported");
+                // textmode::write_line("x2APIC supported");
             }
             else
             {
                 uint64_t apic_base_msr = rdmsr(0x1B);
                 wrmsr(0x1B, apic_base_msr | (1 << 11));
-                textmode::write_line("Base APIC supported");
+                // textmode::write_line("Base APIC supported");
             }
 
             constexpr uintptr_t APIC_BASE = 0xFEE00000;
@@ -439,14 +571,14 @@ namespace onx
              */
             if (cpu_features.x2apic)
             {
-                wrmsr(0x832, 0x10000);
-                wrmsr(0x838, 0x10000000);
+                wrmsr(0x832, 0x3);
+                wrmsr(0x838, 0x100000);
                 wrmsr(0x832, IRQ_TIMER | 0x20000);
             }
             else if (apic)
             {
-                apic[0x3E0 / 4] = 0x10000;
-                apic[0x380 / 4] = 0x10000000;
+                apic[0x3E0 / 4] = 0x3;
+                apic[0x380 / 4] = 0x100000;
                 apic[0x320 / 4] = IRQ_TIMER | 0x20000;
             }
 
@@ -503,11 +635,11 @@ namespace onx
             // ICW4: set x86 mode
             outb(0x21, 0x01);
             outb(0xA1, 0x01);
-            textmode::write_line("Using legacy PIC");
+            // textmode::write_line("Using legacy PIC");
         }
 
         enable_interrupts();
-        textmode::write_line("APIC initialized with interrupts enabled");
+        // textmode::write_line("APIC initialized with interrupts enabled");
 
 
         /* enable syscall & sysret */
@@ -536,10 +668,9 @@ namespace onx
         /* GC base because this is IMPORTANT to separate kernel/user */
         wrmsr(MSR_GS_BASE, 0);
         wrmsr(MSR_KERNEL_GS_BASE, 0);
-        textmode::write_line("MSR enabled");
+        // textmode::write_line("MSR enabled");
 
-        /* SMP */
-
+        /* TODO: SMP */
 
         textmode::write_line("CPU initialized");
     }
@@ -548,5 +679,15 @@ namespace onx
     {
         while (true)
             asm volatile("hlt");
+    }
+
+    CPUFeatures& cpu_traits<x86_64>::get_features() noexcept
+    {
+        return cpu_features;
+    }
+
+    uint64_t cpu_traits<x86_64>::get_tick() noexcept
+    {
+        return tick;
     }
 }

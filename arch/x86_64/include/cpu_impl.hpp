@@ -15,6 +15,10 @@ struct onx::cpu_traits<onx::x86_64>
     static void init(volatile limine_smp_request *mp, volatile limine_hhdm_request* hhdm) noexcept;
 
     [[noreturn]] static void halt() noexcept;
+
+    static CPUFeatures& get_features() noexcept;
+
+    static uint64_t get_tick() noexcept;
 };
 
 #endif
