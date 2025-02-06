@@ -19,17 +19,6 @@ namespace onx
         static void map_page(uintptr_t virt, uintptr_t phys, uint64_t flags) noexcept;
     };
 
-    struct x86_64;
-    struct aarch64;
-
-#if defined(__x86_64__)
-    using current_arch = x86_64;
-#elif defined(__aarch64__)
-    using current_arch = aarch64;
-#else
-#error "Unsupported architecture"
-#endif
-
     using mem = mm_trait<current_arch>;
 }
 

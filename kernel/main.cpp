@@ -2,7 +2,6 @@
 #include <ornyx/arch/cpu.hpp>
 #include <ornyx/arch/mem.hpp>
 #include <ornyx/boot/limine.h>
-#include <ornyx/arch/paging.hpp>
 
 /*
  * limine boot sequences
@@ -42,18 +41,6 @@ namespace
     inline volatile limine_memmap_request memmap_request = {
         .id = LIMINE_MEMMAP_REQUEST,
         .response = nullptr
-    };
-
-    __attribute__((used, section(".limine_requests")))
-    volatile limine_paging_mode_request paging_request = {
-        .id = LIMINE_PAGING_MODE_REQUEST,
-        .revision = 1,
-        .response = nullptr,
-
-        /* these are known at compile-time */
-        .mode = onx::paging::default_mode(),
-        .max_mode = onx::paging::max_mode(),
-        .min_mode = onx::paging::min_mode()
     };
 
     __attribute__((used, section(".limine_requests_start")))

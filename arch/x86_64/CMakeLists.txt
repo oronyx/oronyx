@@ -1,6 +1,7 @@
 add_library(arch OBJECT
         src/cpu_impl.cpp
         src/mem_impl.cpp
+        src/io_impl.cpp
 )
 
 target_include_directories(arch

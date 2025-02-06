@@ -3,8 +3,6 @@
 #ifndef __ORNYX__CTYPE__
 #define __ORNYX__CTYPE__
 
-#include <types.hpp>
-
 namespace onx
 {
     bool isalpha(int c) noexcept;

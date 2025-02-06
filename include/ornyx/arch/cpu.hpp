@@ -3,6 +3,7 @@
 #ifndef __ORNYX__CPU__
 #define __ORNYX__CPU__
 
+#include <types.hpp>
 #include <ornyx/boot/limine.h>
 
 /* CPU-specific stuff that will be in arch/${ARCH} */
@@ -20,18 +21,6 @@ namespace onx
         static CPUFeatures& get_features() noexcept;
         static uint64_t get_tick() noexcept;
     };
-
-    struct x86_64;
-    struct aarch64;
-
-    /* TODO: support more architecture later */
-    #if defined(__x86_64__)
-        using current_arch = x86_64;
-    #elif defined(__aarch64__)
-        using current_arch = aarch64;
-    #else
-        #error "Unsupported architecture"
-    #endif
 
     using cpu = cpu_traits<current_arch>;
 }

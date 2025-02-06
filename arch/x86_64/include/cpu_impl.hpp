@@ -6,7 +6,7 @@
 #include <ornyx/arch/cpu.hpp>
 
 template<>
-struct onx::cpu_traits<onx::x86_64>
+struct onx::cpu_traits<x86_64>
 {
     static void enable_interrupts() noexcept;
 

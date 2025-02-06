@@ -4,6 +4,7 @@
 #include <ornyx/textmode.hpp>
 #include <ornyx/arch/mem.hpp>
 #include <ornyx/boot/limine.h>
+#include <ornyx/arch/io.hpp>
 #include "../include/mem_impl.hpp"
 
 namespace onx
@@ -160,23 +161,6 @@ namespace onx
     };
 
     CPUFeatures cpu_features;
-
-    inline void outb(uint16_t port, uint8_t val)
-    {
-        asm volatile("outb %0, %1" : : "a"(val), "Nd"(port) : "memory");
-    }
-
-    inline void outw(uint16_t port, uint16_t val)
-    {
-        asm volatile("outw %0, %1" : : "a"(val), "Nd"(port) : "memory");
-    }
-
-    inline uint8_t inb(uint16_t port)
-    {
-        uint8_t ret;
-        asm volatile("inb %1, %0" : "=a"(ret) : "Nd"(port) : "memory");
-        return ret;
-    }
 
     inline uint64_t rdmsr(uint32_t msr)
     {
@@ -535,8 +519,8 @@ namespace onx
         if (cpu_features.apic)
         {
             /* disable PIC if it's on (idk if limine enables them) */
-            outb(0xA1, 0xFF);
-            outb(0x21, 0xFF);
+            io::outb(0xA1, 0xFF);
+            io::outb(0x21, 0xFF);
             if (cpu_features.x2apic)
             {
                 uint64_t apic_base_msr = rdmsr(0x1B);
@@ -621,20 +605,20 @@ namespace onx
         {
             /* PIC init */
             // ICW1: start init sequence
-            outb(0x20, 0x11); // master
-            outb(0xA0, 0x11); // slave
+            io::outb(0x20, 0x11); // master
+            io::outb(0xA0, 0x11); // slave
 
             // ICW2: vector offset
-            outb(0x21, 0x20);
-            outb(0xA1, 0x28);
+            io::outb(0x21, 0x20);
+            io::outb(0xA1, 0x28);
 
             // ICW3: master & slave wiring
-            outb(0x21, 0x04); // tell master there's a slave at IRQ2
-            outb(0xA1, 0x02); // tell slave its cascade identity
+            io::outb(0x21, 0x04); // tell master there's a slave at IRQ2
+            io::outb(0xA1, 0x02); // tell slave its cascade identity
 
             // ICW4: set x86 mode
-            outb(0x21, 0x01);
-            outb(0xA1, 0x01);
+            io::outb(0x21, 0x01);
+            io::outb(0xA1, 0x01);
             // textmode::write_line("Using legacy PIC");
         }
 
