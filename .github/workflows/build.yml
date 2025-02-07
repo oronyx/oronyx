@@ -37,7 +37,7 @@ jobs:
         working-directory: ${{github.workspace}}/build
         run: |
           cmake --build . --config ${{ matrix.build_type }}
-          x86_64-elf-strip build/kernel.elf
+          x86_64-elf-strip kernel.elf
 
       - name: Calculate Kernel Size
         id: size
