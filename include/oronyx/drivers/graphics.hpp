@@ -10,7 +10,7 @@ namespace onx
 {
     static constexpr size_t BASIC_WIDTH = 8; // latin
     static constexpr size_t WIDE_WIDTH = 16; // cjk
-    static constexpr size_t FONT_HEIGHT = 16;
+    static constexpr size_t FONT_HEIGHT = 201;
 
     void init(limine_framebuffer *framebuffer) noexcept;
 

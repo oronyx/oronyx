@@ -86,28 +86,27 @@ namespace onx
 
         void _putchar(uint32_t cp)
         {
-            const uint8_t *glyph = get_glyph(cp);
-            size_t char_width = get_glyph_width(cp);
+            const size_t glyph_offset = cp * FONT_HEIGHT;
+            const uint8_t* glyph = &FONTS[glyph_offset];
+            const size_t char_width = get_glyph_width(cp);
 
             if (x_pos * char_width >= width || y_pos * FONT_HEIGHT >= height)
-            {
                 return;
-            }
 
             for (size_t y = 0; y < FONT_HEIGHT; ++y)
             {
+                const uint8_t row = glyph[y];
+                const size_t py = y_pos * FONT_HEIGHT + y;
                 for (size_t x = 0; x < char_width; ++x)
                 {
-                    const size_t bit = 7 - (x % 8);
-                    const size_t byte_offset = x / 8;
                     const size_t px = x_pos * char_width + x;
-                    const size_t py = y_pos * FONT_HEIGHT + y;
-                    if (px >= width || py >= height)
-                        continue;
+                    if (px >= width || py >= height) continue;
 
                     const size_t fb_offset = py * pitch + px;
-                    const uint8_t current_byte = glyph[y + byte_offset * FONT_HEIGHT];
-                    buffer[fb_offset] = (current_byte & (1 << bit)) ? fg_color : bg_color;
+                    // for basic width characters: check the corresponding bit
+                    // for wide characters; duplicate each bit
+                    const size_t bit = 7 - (x / (char_width / BASIC_WIDTH));
+                    buffer[fb_offset] = (row & (1 << bit)) ? fg_color : bg_color;
                 }
             }
 
