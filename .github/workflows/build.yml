@@ -19,6 +19,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install Dependencies
+        run: brew install x86_64-elf-gcc xorriso cmake
+
       - name: Configure CMake
         run: |
           cmake -E make_directory ${{github.workspace}}/build
