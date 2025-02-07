@@ -1,4 +1,4 @@
-Oronyx ![CI](https://github.com/oronyx/oronyx/actions/workflows/build.yml/badge.svg) ![Repo Size](https://img.shields.io/github/repo-size/oronyx/oronyx) ![Kernel Size](https://img.shields.io/badge/Kernel%20Size-949KB-blue)
+Oronyx ![CI](https://github.com/oronyx/oronyx/actions/workflows/build.yml/badge.svg) ![Repo Size](https://img.shields.io/github/repo-size/oronyx/oronyx) ![Kernel Size](https://img.shields.io/badge/Kernel%20Size-926KB-blue)
 ====
 
 Oronyx (/ˈoʊroʊnɪks) is a POSIX-compatible operating system built from scratch, focusing on performance and modern design principles. 
