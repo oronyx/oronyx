@@ -1,11 +1,10 @@
 #include "../include/cpu_impl.hpp"
 #include <iostream.hpp>
-#include <type_traits.hpp>
-#include <ornyx/arch/io.hpp>
-#include <ornyx/arch/mem.hpp>
-#include <ornyx/boot/limine.h>
-#include <ornyx/drivers/graphics.hpp>
-#include <ornyx/drivers/keyboard.hpp>
+#include <oronyx/arch/io.hpp>
+#include <oronyx/arch/mem.hpp>
+#include <oronyx/boot/limine.h>
+#include <oronyx/drivers/graphics.hpp>
+#include <oronyx/drivers/keyboard.hpp>
 #include "../include/mem_impl.hpp"
 
 namespace onx
@@ -41,7 +40,6 @@ namespace onx
     } __attribute__((packed));
 
 
-
     /* interrupts */
     struct IDTEntry
     {
@@ -69,21 +67,6 @@ namespace onx
         uint64_t ss;
     } __attribute__((packed));
 
-    /* port & SIMD features */
-    struct CPUFeatures
-    {
-        bool apic { false };
-        bool x2apic { false };
-        bool sse { false };
-        bool avx { false };
-        bool avx2 { false };
-        bool avx512f { false };
-        bool avx512bw { false };
-        bool avx512cd { false };
-        bool avx512dq { false };
-        uint32_t bsp_lapic_id { 0 };
-    };
-
     static constexpr uint8_t EXCEPTION_DE = 0;  // divide error
     static constexpr uint8_t EXCEPTION_DB = 1;  // debug
     static constexpr uint8_t EXCEPTION_NMI = 2; // non-maskable int
@@ -92,15 +75,15 @@ namespace onx
     static constexpr uint8_t EXCEPTION_BR = 5;  // bound Range
     static constexpr uint8_t EXCEPTION_UD = 6;  // invalid opcode
     static constexpr uint8_t EXCEPTION_NM = 7;  // device unavailable
-    static constexpr uint8_t EXCEPTION_DF = 8;  // double fault     (Error Code)
+    static constexpr uint8_t EXCEPTION_DF = 8;  // double fault [ERR]
     static constexpr uint8_t EXCEPTION_CSO = 9; // coprocessor segment Ooerrun
-    static constexpr uint8_t EXCEPTION_TS = 10; // invalid TSS      (Error Code)
-    static constexpr uint8_t EXCEPTION_NP = 11; // segment not present (Error Code)
-    static constexpr uint8_t EXCEPTION_SS = 12; // stack fault      (Error Code)
-    static constexpr uint8_t EXCEPTION_GP = 13; // general protection (Error Code)
-    static constexpr uint8_t EXCEPTION_PF = 14; // page eault       (Error Code)
+    static constexpr uint8_t EXCEPTION_TS = 10; // invalid TSS [ERR]
+    static constexpr uint8_t EXCEPTION_NP = 11; // segment not present [ERR]
+    static constexpr uint8_t EXCEPTION_SS = 12; // stack fault [ERR]
+    static constexpr uint8_t EXCEPTION_GP = 13; // general protection [ERR]
+    static constexpr uint8_t EXCEPTION_PF = 14; // page eault [ERR]
     static constexpr uint8_t EXCEPTION_MF = 16; // x87 FPU error
-    static constexpr uint8_t EXCEPTION_AC = 17; // alignment check  (Error Code)
+    static constexpr uint8_t EXCEPTION_AC = 17; // alignment check [ERR]
     static constexpr uint8_t EXCEPTION_MC = 18; // machine check
     static constexpr uint8_t EXCEPTION_XM = 19; // SIMD exception
     static constexpr uint8_t EXCEPTION_VE = 20; // virtualization exception
@@ -144,11 +127,11 @@ namespace onx
     static InterruptHandler handlers[256] = { nullptr };
 
     alignas(16) GDTEntry gdt[] = {
-        { 0, 0, 0, 0, 0, 0, 0 }, // null
+        { 0, 0, 0, 0, 0, 0, 0 },             // null
         { 0xFFFF, 0, 0, 0x9A, 0xF, 0xA, 0 }, // kernel code
         { 0xFFFF, 0, 0, 0x92, 0xF, 0xA, 0 }, // kernel data
-        { 0, 0, 0, 0, 0, 0, 0 }, // tss low
-        { 0, 0, 0, 0, 0, 0, 0 }, // tss high
+        { 0, 0, 0, 0, 0, 0, 0 },             // tss low
+        { 0, 0, 0, 0, 0, 0, 0 },             // tss high
     };
 
     alignas(16) static TSS tss = {};
@@ -214,7 +197,7 @@ namespace onx
 
     /* for APIC */
     __attribute__((interrupt))
-    void timer_handler(InterruptFrame*)
+    void timer_handler(InterruptFrame *)
     {
         tick++;
         if (cpu_features.x2apic)
@@ -264,7 +247,7 @@ namespace onx
 
     /* general fault */
     __attribute__((interrupt))
-    void gpf_handler(const InterruptFrame* frame, const uint64_t error)
+    void gpf_handler(const InterruptFrame *frame, const uint64_t error)
     {
         write("General Protection Fault! Error code: ");
         print_hex(error);
@@ -285,86 +268,75 @@ namespace onx
     }
 
     template<typename T>
-    using BaseInterruptHandler = void(*)(T*);
+    using BaseInterruptHandler = void(*)(T *);
 
     template<typename T>
-    using BaseErrorInterruptHandler = void(*)(T*, uint64_t);
+    using BaseErrorInterruptHandler = void(*)(T *, uint64_t);
 
     using InterruptHandler = BaseInterruptHandler<InterruptFrame>;
     using ErrorInterruptHandler = BaseErrorInterruptHandler<InterruptFrame>;
 
-    template<typename HandlerType>
-    void setup_idt(const uint8_t vector, HandlerType *handler, const uint16_t selector = 0x08, const uint8_t ist = 0)
+    template<typename F>
+    void cpu_traits<x86_64>::set_gate(const uint8_t vector, F handler, const uint8_t ist, const uint8_t dpl) noexcept
     {
         const auto handler_addr = reinterpret_cast<uintptr_t>(handler);
-        IDTEntry &entry = idt[vector];
+        auto &entry = idt[vector];
+
         entry.offset_low = handler_addr & 0xFFFF;
-        entry.selector = selector;
-        entry.ist = ist;
-        entry.flags = 0x8E;
+        entry.selector = 0x08; // Kernel code segment
+        entry.ist = ist & 0x7;
+        entry.flags = 0x8E | ((dpl & 0x3) << 5); // Present | Int Gate | DPL
         entry.offset_mid = (handler_addr >> 16) & 0xFFFF;
         entry.offset_high = (handler_addr >> 32) & 0xFFFFFFFF;
+        entry.reserved = 0;
 
-        using NoErrorHandlerType = BaseInterruptHandler<const InterruptFrame>;
-        using ErrorHandlerType = BaseErrorInterruptHandler<const InterruptFrame>;
-
-        if constexpr (is_same<HandlerType*, NoErrorHandlerType>::value ||
-                      is_same<HandlerType*, ErrorHandlerType>::value ||
-                      is_same<HandlerType*, BaseInterruptHandler<InterruptFrame>>::value ||
-                      is_same<HandlerType*, BaseErrorInterruptHandler<InterruptFrame>>::value)
-        {
-            handlers[vector] = reinterpret_cast<InterruptHandler>(handler);
-        }
-        else
-        {
-            static_assert(always_false<HandlerType>, "Unsupported interrupt handler type");
-        }
+        handlers[vector] = reinterpret_cast<InterruptHandler>(handler);
     }
 
     /* TODO: to be replaced with handlers */
     inline void setup_exc()
     {
-        setup_idt(EXCEPTION_DE, int_no_error);   // divide error
-        setup_idt(EXCEPTION_DB, int_no_error);   // debug
-        setup_idt(EXCEPTION_NMI, int_no_error);  // non-maskable int
-        setup_idt(EXCEPTION_BP, int_no_error);   // breakpoint
-        setup_idt(EXCEPTION_OF, int_no_error);   // overflow
-        setup_idt(EXCEPTION_BR, int_no_error);   // bound rage
-        setup_idt(EXCEPTION_UD, int_no_error);   // invalid opcode
-        setup_idt(EXCEPTION_NM, int_no_error);   // device unvailable
-        setup_idt(EXCEPTION_DF, double_fault_handler); // double fault
-        setup_idt(EXCEPTION_CSO, int_no_error);  // coprocessor segment overrun
-        setup_idt(EXCEPTION_TS, int_with_error); // invalid TSS
-        setup_idt(EXCEPTION_NP, int_with_error); // segment Not present
-        setup_idt(EXCEPTION_SS, int_with_error); // stack fault
-        setup_idt(EXCEPTION_GP, gpf_handler); // general protection
-        setup_idt(EXCEPTION_PF, page_fault_handler); // page fault
-        setup_idt(EXCEPTION_MF, int_no_error);   // x87 fPU error
-        setup_idt(EXCEPTION_AC, int_with_error); // alignment check
-        setup_idt(EXCEPTION_MC, int_no_error);   // machine check
-        setup_idt(EXCEPTION_XM, int_no_error);   // SIMD exception
-        setup_idt(EXCEPTION_VE, int_no_error);   // virtualization exception
+        cpu_traits<x86_64>::set_gate(EXCEPTION_DE, int_no_error);         // divide error
+        cpu_traits<x86_64>::set_gate(EXCEPTION_DB, int_no_error);         // debug
+        cpu_traits<x86_64>::set_gate(EXCEPTION_NMI, int_no_error);        // non-maskable int
+        cpu_traits<x86_64>::set_gate(EXCEPTION_BP, int_no_error);         // breakpoint
+        cpu_traits<x86_64>::set_gate(EXCEPTION_OF, int_no_error);         // overflow
+        cpu_traits<x86_64>::set_gate(EXCEPTION_BR, int_no_error);         // bound rage
+        cpu_traits<x86_64>::set_gate(EXCEPTION_UD, int_no_error);         // invalid opcode
+        cpu_traits<x86_64>::set_gate(EXCEPTION_NM, int_no_error);         // device unvailable
+        cpu_traits<x86_64>::set_gate(EXCEPTION_DF, double_fault_handler); // double fault
+        cpu_traits<x86_64>::set_gate(EXCEPTION_CSO, int_no_error);        // coprocessor segment overrun
+        cpu_traits<x86_64>::set_gate(EXCEPTION_TS, int_with_error);       // invalid TSS
+        cpu_traits<x86_64>::set_gate(EXCEPTION_NP, int_with_error);       // segment Not present
+        cpu_traits<x86_64>::set_gate(EXCEPTION_SS, int_with_error);       // stack fault
+        cpu_traits<x86_64>::set_gate(EXCEPTION_GP, gpf_handler);          // general protection
+        cpu_traits<x86_64>::set_gate(EXCEPTION_PF, page_fault_handler);   // page fault
+        cpu_traits<x86_64>::set_gate(EXCEPTION_MF, int_no_error);         // x87 fPU error
+        cpu_traits<x86_64>::set_gate(EXCEPTION_AC, int_with_error);       // alignment check
+        cpu_traits<x86_64>::set_gate(EXCEPTION_MC, int_no_error);         // machine check
+        cpu_traits<x86_64>::set_gate(EXCEPTION_XM, int_no_error);         // SIMD exception
+        cpu_traits<x86_64>::set_gate(EXCEPTION_VE, int_no_error);         // virtualization exception
     }
 
     /* TODO: to be replaced by actual handlers(?) */
     inline void setup_irqs()
     {
-        setup_idt(IRQ_TIMER, timer_handler);
-        setup_idt(IRQ_KEYBOARD, int_no_error);
-        setup_idt(IRQ_CASCADE, int_no_error);
-        setup_idt(IRQ_COM2, int_no_error);
-        setup_idt(IRQ_COM1, int_no_error);
-        setup_idt(IRQ_LPT2, int_no_error);
-        setup_idt(IRQ_FLOPPY, int_no_error);
-        setup_idt(IRQ_LPT1, int_no_error);
-        setup_idt(IRQ_RTC, int_no_error);
-        setup_idt(IRQ_9, int_no_error);
-        setup_idt(IRQ_10, int_no_error);
-        setup_idt(IRQ_11, int_no_error);
-        setup_idt(IRQ_MOUSE, int_no_error);
-        setup_idt(IRQ_FPU, int_no_error);
-        setup_idt(IRQ_ATA1, int_no_error);
-        setup_idt(IRQ_ATA2, int_no_error);
+        cpu_traits<x86_64>::set_gate(IRQ_TIMER, timer_handler);
+        cpu_traits<x86_64>::set_gate(IRQ_KEYBOARD, keyboard_handler);
+        cpu_traits<x86_64>::set_gate(IRQ_CASCADE, int_no_error);
+        cpu_traits<x86_64>::set_gate(IRQ_COM2, int_no_error);
+        cpu_traits<x86_64>::set_gate(IRQ_COM1, int_no_error);
+        cpu_traits<x86_64>::set_gate(IRQ_LPT2, int_no_error);
+        cpu_traits<x86_64>::set_gate(IRQ_FLOPPY, int_no_error);
+        cpu_traits<x86_64>::set_gate(IRQ_LPT1, int_no_error);
+        cpu_traits<x86_64>::set_gate(IRQ_RTC, int_no_error);
+        cpu_traits<x86_64>::set_gate(IRQ_9, int_no_error);
+        cpu_traits<x86_64>::set_gate(IRQ_10, int_no_error);
+        cpu_traits<x86_64>::set_gate(IRQ_11, int_no_error);
+        cpu_traits<x86_64>::set_gate(IRQ_MOUSE, int_no_error);
+        cpu_traits<x86_64>::set_gate(IRQ_FPU, int_no_error);
+        cpu_traits<x86_64>::set_gate(IRQ_ATA1, int_no_error);
+        cpu_traits<x86_64>::set_gate(IRQ_ATA2, int_no_error);
     }
 
     void cpu_traits<x86_64>::enable_interrupt()
@@ -426,7 +398,7 @@ namespace onx
         tss.iopb = sizeof(TSS);
         asm volatile(
             "ltr %%ax"
-            : : "a"(0x18)  /* according to OSDev wiki; it is at 0x18 (3 * 8) */
+            : : "a"(0x18) /* according to OSDev wiki; it is at 0x18 (3 * 8) */
         );
 
         // write_line("TSS initialized");
@@ -513,10 +485,6 @@ namespace onx
             eax = xcr0 & 0xFFFFFFFF;
             edx = xcr0 >> 32;
             asm volatile("xsetbv" : : "a"(eax), "d"(edx), "c"(0));
-
-            // write_line("AVX supported");
-            // if (cpu_features.avx512f)
-            //     write_line("AVX-512 supported");
         }
 
         if (cpu_features.apic)
@@ -534,7 +502,6 @@ namespace onx
             {
                 uint64_t apic_base_msr = rdmsr(0x1B);
                 wrmsr(0x1B, apic_base_msr | (1 << 11));
-                // write_line("Base APIC supported");
             }
 
             constexpr uintptr_t APIC_BASE = 0xFEE00000;
@@ -546,7 +513,6 @@ namespace onx
                 CACHE_DISABLE
             );
 
-            // map the APIC registers for xAPIC mode
             volatile uint32_t *apic = cpu_features.x2apic
                                           ? nullptr
                                           : reinterpret_cast<volatile uint32_t *>(APIC_BASE + hhdm->response->offset);
@@ -622,11 +588,9 @@ namespace onx
             // ICW4: set x86 mode
             io::outb(0x21, 0x01);
             io::outb(0xA1, 0x01);
-            // write_line("Using legacy PIC");
         }
 
         enable_interrupt();
-        // write_line("APIC initialized with interrupts enabled");
 
         /* enable syscall & sysret */
         uint64_t efer = rdmsr(MSR_EFER);
@@ -666,7 +630,7 @@ namespace onx
             asm volatile("hlt");
     }
 
-    CPUFeatures& cpu_traits<x86_64>::get_features() noexcept
+    CPUFeatures &cpu_traits<x86_64>::get_features() noexcept
     {
         return cpu_features;
     }

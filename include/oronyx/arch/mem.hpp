@@ -3,8 +3,8 @@
 #ifndef __ORNYX__MEM__
 #define __ORNYX__MEM__
 
-#include <ornyx/boot/limine.h>
 #include <types.hpp>
+#include <oronyx/boot/limine.h>
 
 namespace onx
 {

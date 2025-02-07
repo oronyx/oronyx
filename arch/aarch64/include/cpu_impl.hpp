@@ -3,7 +3,7 @@
 #ifndef __ORNYX__CPU__IMPL__
 #define __ORNYX__CPU__IMPL__
 
-#include <ornyx/arch/cpu.hpp>
+#include <oronyx/arch/cpu.hpp>
 
 namespace onx 
 {

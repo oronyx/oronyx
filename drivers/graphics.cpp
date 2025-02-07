@@ -1,5 +1,5 @@
-#include <ornyx/data/fonts.hpp>
-#include <ornyx/drivers/graphics.hpp>
+#include <oronyx/data/fonts.hpp>
+#include <oronyx/drivers/graphics.hpp>
 
 namespace onx
 {

@@ -1,5 +1,5 @@
 #include <iostream.hpp>
-#include <ornyx/drivers/graphics.hpp>
+#include <oronyx/drivers/graphics.hpp>
 
 namespace onx
 {

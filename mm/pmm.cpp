@@ -1,7 +1,6 @@
 #include <iostream.hpp>
-#include <ornyx/drivers/graphics.hpp>
-#include <ornyx/arch/cpu.hpp>
-#include <ornyx/mm/pmm.hpp>
+#include <oronyx/drivers/graphics.hpp>
+#include <oronyx/mm/pmm.hpp>
 
 namespace onx::mm
 {

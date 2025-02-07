@@ -1,4 +1,4 @@
-#include <ornyx/arch/cpu.hpp>
+#include <oronyx/arch/cpu.hpp>
 
 /* cxxrt support */
 extern "C"

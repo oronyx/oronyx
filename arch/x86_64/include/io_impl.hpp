@@ -1,7 +1,7 @@
 #pragma once
 
 #ifndef __ORNYX__IO__IMPL__
-#include <ornyx/arch/io.hpp>
+#include <oronyx/arch/io.hpp>
 
 template<>
 struct onx::io_traits<x86_64>

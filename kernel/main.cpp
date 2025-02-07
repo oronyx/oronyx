@@ -1,7 +1,9 @@
-#include <ornyx/arch/cpu.hpp>
-#include <ornyx/arch/mem.hpp>
-#include <ornyx/boot/limine.h>
-#include <ornyx/drivers/graphics.hpp>
+#include <oronyx/arch/cpu.hpp>
+#include <oronyx/arch/mem.hpp>
+#include <oronyx/boot/limine.h>
+#include <oronyx/drivers/graphics.hpp>
+
+#include "../arch/x86_64/include/cpu_impl.hpp"
 
 /*
  * limine boot sequences

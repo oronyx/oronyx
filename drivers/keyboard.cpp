@@ -1,23 +1,33 @@
-#include <ornyx/arch/io.hpp>
-#include <ornyx/drivers/keyboard.hpp>
+#include <oronyx/arch/io.hpp>
+#include <oronyx/drivers/graphics.hpp>
+#include <oronyx/drivers/keyboard.hpp>
 
 namespace onx
 {
-    struct InterruptFrame
+    static constexpr size_t MAX_KEYBOARD_EVENTS = 64;
+
+    struct KeyboardEvent
     {
-        uint64_t ip;
-        uint64_t cs;
-        uint64_t flags;
-        uint64_t sp;
-        uint64_t ss;
-    } __attribute__((packed));
+        char ascii;
+        uint8_t scancode;
+        bool pressed;
+    };
 
-    static char last_key;
-    static bool keys[128] = { false };
-    static auto shift_pressed = false;
-    static auto caps_lock = false;
+    static struct
+    {
+        char last_key;
+        bool keys[128] = { false };
+        bool shift_left = false;
+        bool shift_right = false;
+        bool caps_lock = false;
 
-    /* TODO: different layout/translation */
+        /* circular buffer */
+        KeyboardEvent event_queue[MAX_KEYBOARD_EVENTS];
+        size_t queue_head = 0;
+        size_t queue_tail = 0;
+        size_t queue_size = 0;
+    } keyboard_state;
+
     static constexpr char SCANCODE2ASCII[] = {
         0, 0, '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '=', 0,
         0, 'q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p', '[', ']', 0,
@@ -34,23 +44,56 @@ namespace onx
         '*', 0, ' '
     };
 
-    char get_last_key() noexcept
+    static void enqueue_event(char ascii, uint8_t scancode)
     {
-        return last_key;
+        if (keyboard_state.queue_size < MAX_KEYBOARD_EVENTS)
+        {
+            keyboard_state.event_queue[keyboard_state.queue_tail] = { ascii, scancode, true };
+            keyboard_state.queue_tail = (keyboard_state.queue_tail + 1) % MAX_KEYBOARD_EVENTS;
+            keyboard_state.queue_size++;
+        }
     }
 
-    bool is_pressed(const uint8_t scancode) noexcept
-    {
-        return keys[scancode & 0x7F];
-    }
-
-    char translate_scancode(const uint8_t scancode) noexcept
+    static char translate_scancode(const uint8_t scancode) noexcept
     {
         if (scancode >= sizeof(SCANCODE2ASCII))
             return 0;
 
-        const bool shift = shift_pressed ^ caps_lock;
+        const bool shift = (keyboard_state.shift_left || keyboard_state.shift_right) ^ keyboard_state.caps_lock;
         return shift ? SCANCODE2ASCII_SHIFT[scancode] : SCANCODE2ASCII[scancode];
+    }
+
+    char get_last_key() noexcept
+    {
+        return keyboard_state.last_key;
+    }
+
+    bool is_pressed(const uint8_t scancode) noexcept
+    {
+        return keyboard_state.keys[scancode & 0x7F];
+    }
+
+    bool dequeue_keyboard_event(KeyboardEvent &event)
+    {
+        if (keyboard_state.queue_size == 0)
+            return false;
+
+        event = keyboard_state.event_queue[keyboard_state.queue_head];
+        keyboard_state.queue_head = (keyboard_state.queue_head + 1) % MAX_KEYBOARD_EVENTS;
+        keyboard_state.queue_size--;
+        return true;
+    }
+
+    void process_keyboard_input()
+    {
+        KeyboardEvent event;
+        while (dequeue_keyboard_event(event))
+        {
+            if (event.pressed && event.ascii)
+            {
+                putchar(event.ascii);
+            }
+        }
     }
 
     __attribute__((interrupt))
@@ -63,19 +106,29 @@ namespace onx
         switch (scancode)
         {
             case 0x2A: /* left shift */
+                keyboard_state.shift_left = !released;
+                return;
             case 0x36: /* right shift */
-                shift_pressed = !released;
+                keyboard_state.shift_right = !released;
                 return;
             case 0x3A: /* caps lock */
                 if (!released)
-                    caps_lock = !caps_lock;
+                    keyboard_state.caps_lock = !keyboard_state.caps_lock;
+                return;
+            case 0x0E: /* backspace */
+                if (!released)
+                {
+                    putchar('\b');
+                }
                 return;
             default:
             {
-                keys[scancode] = !released;
+                keyboard_state.keys[scancode] = !released;
                 if (!released)
                 {
-                    last_key = translate_scancode(scancode);
+                    const char ascii = translate_scancode(scancode);
+                    keyboard_state.last_key = ascii;
+                    enqueue_event(ascii, scancode);
                 }
             }
         }

@@ -3,7 +3,7 @@
 #ifndef __ORNYX__MEM__IMPL__
 #define __ORNYX__MEM__IMPL__
 
-#include <ornyx/arch/mem.hpp>
+#include <oronyx/arch/mem.hpp>
 
 namespace onx
 {
