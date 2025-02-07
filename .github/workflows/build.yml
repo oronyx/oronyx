@@ -33,3 +33,23 @@ jobs:
       - name: Build
         working-directory: ${{github.workspace}}/build
         run: cmake --build . --config ${{ matrix.build_type }}
+
+      - name: Update Kernel Size Badge
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          SIZE=$(stat -f %z build/kernel.elf)
+          SIZE_KB=$((SIZE / 1024))
+          BADGE_URL="https://img.shields.io/badge/Kernel%20Size-${SIZE_KB}KB-blue"
+          
+          sed -i '' "s|!\[Kernel Size\](https://img.shields.io/badge/Kernel%20Size-[0-9]*KB-blue)|![Kernel Size](${BADGE_URL})|" README.md
+          
+          # If there are changes, commit and push them
+          if git diff --quiet README.md; then
+            echo "No changes to kernel size"
+          else
+            git config --local user.email "action@github.com"
+            git config --local user.name "GitHub Action"
+            git add README.md
+            git commit -m "[auto]: update kernel size to ${SIZE_KB}KB [skip ci]"
+            git push
+          fi
