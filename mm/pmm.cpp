@@ -1,5 +1,5 @@
 #include <iostream.hpp>
-#include <ornyx/textmode.hpp>
+#include <ornyx/drivers/graphics.hpp>
 #include <ornyx/arch/cpu.hpp>
 #include <ornyx/mm/pmm.hpp>
 
@@ -66,7 +66,7 @@ namespace onx::mm
         }
 
         print_regions();
-        textmode::write_line("PMM initialized");
+        write_line("PMM initialized");
     }
 
     uintptr_t PMM::alloc_pages(const size_t count) noexcept

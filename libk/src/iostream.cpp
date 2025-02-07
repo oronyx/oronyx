@@ -1,26 +1,26 @@
 #include <iostream.hpp>
-#include <ornyx/textmode.hpp>
+#include <ornyx/drivers/graphics.hpp>
 
 namespace onx
 {
     void putc(const char c)
     {
-        onx::textmode::putchar(c);
+        onx::putchar(c);
     }
 
     void puts(const char *str)
     {
-        onx::textmode::write(str);
+        onx::write(str);
     }
 
     void putln(const char *str)
     {
-        onx::textmode::write_line(str);
+        onx::write_line(str);
     }
 
     void endl()
     {
-        onx::textmode::write_line("");
+        onx::write_line("");
     }
 
     void print_int(size_t value)

@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.14)
 
-set(CMAKE_TOOLCHAIN_FILE toolchain.cmake)
+set(CMAKE_TOOLCHAIN_FILE cmake/toolchain.cmake)
 set(CMAKE_OSX_DEPLOYMENT_TARGET "")
 set(CMAKE_OSX_SYSROOT "")
 set(CMAKE_SYSTEM_NAME Generic)

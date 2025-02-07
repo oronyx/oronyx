@@ -1,10 +1,11 @@
 #include "../include/cpu_impl.hpp"
 #include <iostream.hpp>
 #include <type_traits.hpp>
-#include <ornyx/textmode.hpp>
+#include <ornyx/arch/io.hpp>
 #include <ornyx/arch/mem.hpp>
 #include <ornyx/boot/limine.h>
-#include <ornyx/arch/io.hpp>
+#include <ornyx/drivers/graphics.hpp>
+#include <ornyx/drivers/keyboard.hpp>
 #include "../include/mem_impl.hpp"
 
 namespace onx
@@ -38,6 +39,8 @@ namespace onx
         uint16_t reserved3;
         uint16_t iopb;
     } __attribute__((packed));
+
+
 
     /* interrupts */
     struct IDTEntry
@@ -239,22 +242,22 @@ namespace onx
             R (bit 3) - 0: not reserved bit, 1: reserved bit violation
             I (bit 4) - 0: not instruction fetch, 1: instruction fetch
         */
-        textmode::write("Page Fault at 0x");
+        write("Page Fault at 0x");
         print_hex(fault_addr);
-        textmode::write(" (");
+        write(" (");
         if (error & (1 << 0))
-            textmode::write("protection violation, ");
+            write("protection violation, ");
         else
-            textmode::write("non-present page, ");
+            write("non-present page, ");
         if (error & (1 << 1))
-            textmode::write("write, ");
+            write("write, ");
         else
-            textmode::write("read, ");
+            write("read, ");
         if (error & (1 << 2))
-            textmode::write("user, ");
+            write("user, ");
         else
-            textmode::write("kernel, ");
-        textmode::write_line(")");
+            write("kernel, ");
+        write_line(")");
 
         cpu::halt(); /* TODO: proper fault handling */
     }
@@ -263,21 +266,21 @@ namespace onx
     __attribute__((interrupt))
     void gpf_handler(const InterruptFrame* frame, const uint64_t error)
     {
-        textmode::write("General Protection Fault! Error code: ");
+        write("General Protection Fault! Error code: ");
         print_hex(error);
-        textmode::write(" at RIP: ");
+        write(" at RIP: ");
         print_hex(frame->ip);
-        textmode::write_line("");
+        write_line("");
         cpu::halt();
     }
 
     __attribute__((interrupt))
     void double_fault_handler(const InterruptFrame *frame, uint64_t)
     {
-        textmode::write_line("DOUBLE FAULT!");
-        textmode::write("At RIP: ");
+        write_line("DOUBLE FAULT!");
+        write("At RIP: ");
         print_hex(frame->ip);
-        textmode::write_line("");
+        write_line("");
         cpu::halt(); /* we halt because a double fault means the OS is cooked */
     }
 
@@ -364,12 +367,12 @@ namespace onx
         setup_idt(IRQ_ATA2, int_no_error);
     }
 
-    void cpu_traits<x86_64>::enable_interrupts() noexcept
+    void cpu_traits<x86_64>::enable_interrupt()
     {
         asm volatile("sti");
     }
 
-    void cpu_traits<x86_64>::disable_interrupts() noexcept
+    void cpu_traits<x86_64>::disable_interrupt()
     {
         asm volatile("cli");
     }
@@ -426,7 +429,7 @@ namespace onx
             : : "a"(0x18)  /* according to OSDev wiki; it is at 0x18 (3 * 8) */
         );
 
-        // textmode::write_line("TSS initialized");
+        // write_line("TSS initialized");
         /* IDT */
         for (auto &handler: handlers)
             handler = nullptr;
@@ -489,7 +492,7 @@ namespace onx
             cr4 |= 1 << 10; // set OSXMMEXCPT
             asm volatile("mov %0, %%cr4" : : "r"(cr4));
 
-            // textmode::write_line("SSE supported");
+            // write_line("SSE supported");
         }
 
         if (cpu_features.avx)
@@ -511,9 +514,9 @@ namespace onx
             edx = xcr0 >> 32;
             asm volatile("xsetbv" : : "a"(eax), "d"(edx), "c"(0));
 
-            // textmode::write_line("AVX supported");
+            // write_line("AVX supported");
             // if (cpu_features.avx512f)
-            //     textmode::write_line("AVX-512 supported");
+            //     write_line("AVX-512 supported");
         }
 
         if (cpu_features.apic)
@@ -525,13 +528,13 @@ namespace onx
             {
                 uint64_t apic_base_msr = rdmsr(0x1B);
                 wrmsr(0x1B, apic_base_msr | (1 << 10) | (1 << 11));
-                // textmode::write_line("x2APIC supported");
+                // write_line("x2APIC supported");
             }
             else
             {
                 uint64_t apic_base_msr = rdmsr(0x1B);
                 wrmsr(0x1B, apic_base_msr | (1 << 11));
-                // textmode::write_line("Base APIC supported");
+                // write_line("Base APIC supported");
             }
 
             constexpr uintptr_t APIC_BASE = 0xFEE00000;
@@ -619,12 +622,11 @@ namespace onx
             // ICW4: set x86 mode
             io::outb(0x21, 0x01);
             io::outb(0xA1, 0x01);
-            // textmode::write_line("Using legacy PIC");
+            // write_line("Using legacy PIC");
         }
 
-        enable_interrupts();
-        // textmode::write_line("APIC initialized with interrupts enabled");
-
+        enable_interrupt();
+        // write_line("APIC initialized with interrupts enabled");
 
         /* enable syscall & sysret */
         uint64_t efer = rdmsr(MSR_EFER);
@@ -646,17 +648,16 @@ namespace onx
             );
         };
         wrmsr(MSR_LSTAR, reinterpret_cast<uint64_t>(+syscall_entry));
-
         wrmsr(MSR_SYSCALL_MASK, 0x200);
 
         /* GC base because this is IMPORTANT to separate kernel/user */
         wrmsr(MSR_GS_BASE, 0);
         wrmsr(MSR_KERNEL_GS_BASE, 0);
-        // textmode::write_line("MSR enabled");
+        // write_line("MSR enabled");
 
         /* TODO: SMP */
 
-        textmode::write_line("CPU initialized");
+        write_line("CPU initialized");
     }
 
     [[noreturn]] void cpu_traits<x86_64>::halt() noexcept

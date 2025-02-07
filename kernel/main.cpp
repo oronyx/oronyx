@@ -1,7 +1,7 @@
-#include <ornyx/textmode.hpp>
 #include <ornyx/arch/cpu.hpp>
 #include <ornyx/arch/mem.hpp>
 #include <ornyx/boot/limine.h>
+#include <ornyx/drivers/graphics.hpp>
 
 /*
  * limine boot sequences
@@ -69,7 +69,7 @@ extern "C" void kernel_main()
     }
 
     const auto fb = framebuffer_requests.response->framebuffers[0];
-    onx::textmode::init(fb);
+    onx::init(fb);
 
     /* test init: gradient */
     /*
@@ -101,10 +101,10 @@ extern "C" void kernel_main()
      * - [ ] scheduling init
     */
 
-    onx::textmode::write("\n");
-    onx::textmode::write("\t\n");
-    onx::textmode::write_line("WELCOME TO ORNYX");
-    onx::textmode::write_line("RUNNING ON x86_64");
+    onx::write("\n");
+    onx::write("\t\n");
+    onx::write_line("WELCOME TO ORNYX");
+    onx::write_line("RUNNING ON x86_64");
     onx::cpu::init(&mp_request, &hhdm_request);
 
     /* everything else here should be thread-safe */

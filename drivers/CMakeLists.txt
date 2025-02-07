@@ -1,5 +1,7 @@
 add_library(drivers OBJECT
-        textmode.cpp
+        graphics.cpp
+        keyboard.cpp
+        mouse.cpp
 )
 
 target_include_directories(drivers PUBLIC

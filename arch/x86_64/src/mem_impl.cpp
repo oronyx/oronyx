@@ -1,7 +1,7 @@
 #include "../include/mem_impl.hpp"
 
 #include <iostream.hpp>
-#include <ornyx/textmode.hpp>
+#include <ornyx/drivers/graphics.hpp>
 #include <ornyx/arch/cpu.hpp>
 #include <ornyx/mm/pmm.hpp>
 
@@ -14,7 +14,7 @@ namespace onx
         const uintptr_t phys_addr = mm::PMM::alloc_pages(1);
         if (!phys_addr)
         {
-            textmode::write_line("Failed to allocate physical page");
+            write_line("Failed to allocate physical page");
             return nullptr;
         }
 

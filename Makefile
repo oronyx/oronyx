@@ -4,7 +4,7 @@ QEMU ?= qemu-system-$(ARCH)
 BUILD_DIR = build
 ISO = $(BUILD_DIR)/ornyx-$(ARCH).iso
 
-# QEMU flags
+BUILD_TYPE ?= Release # or Debug
 QEMU_FLAGS = -M q35 \
              -m 2G \
              -serial stdio \
@@ -18,7 +18,7 @@ build-dir:
 	mkdir -p $(BUILD_DIR)
 
 build: build-dir
-	cd $(BUILD_DIR) && cmake -DCMAKE_TOOLCHAIN_FILE=../toolchain.cmake ..
+	cd $(BUILD_DIR) && cmake -G Ninja -DCMAKE_BUILD_TYPE=${BUILD_TYPE} -DCMAKE_TOOLCHAIN_FILE=cmake/toolchain.cmake ..
 	cmake --build $(BUILD_DIR)
 
 iso: build
